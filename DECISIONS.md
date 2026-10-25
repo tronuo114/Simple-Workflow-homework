@@ -2,7 +2,7 @@
 
 > 每一次「选择」都留编号。本项目分两层：
 >
-> - **项目级 DEC**（`DEC-001` … `DEC-017`）：架构、技术选型、算法取舍等长期有效的决定，正文在 `docs/decisions/`。
+> - **项目级 DEC**（`DEC-001` … `DEC-018`）：架构、技术选型、算法取舍等长期有效的决定，正文在 `docs/decisions/`。
 > - **运行级 DEC**（每次运行 `DEC-001` 起，独立编号）：这次运行为什么进入修复、为什么强制驳回、
 >   为什么熔断、为什么落地，自动写入 `runs/<run_id>/decisions.jsonl`，索引见同目录 `DECISIONS.md`，
 >   并汇总进 `REPORT.md`。样例见 `examples/sample-run/`。
@@ -28,6 +28,7 @@
 | [DEC-015](docs/decisions/DEC-015-desktop-launcher.md) | 桌面入口 | 单文件 exe + 三个子命令（GUI / `--cli` / `--pytest`）；根目录由 `core/paths` 统一解析 | 体积约 18 MB；启动需解包 |
 | [DEC-016](docs/decisions/DEC-016-chat-entry.md) | 聊天入口 | `--prompt` 一次性任务 + `--events` 事件流 + 并行审查（`--parallel-review`） | 自由输入通常只能做静态验收；并行审查成本 ×2 |
 | [DEC-017](docs/decisions/DEC-017-agent-registry.md) | 可扩展性 | Agent 注册表 + 配置驱动流水线；新增 Agent = 1 行注册 + 1 行配置 | 多一层间接；注册依赖模块导入 |
+| [DEC-018](docs/decisions/DEC-018-bind-doctor.md) | 绑定与自检 | 面板禁用离线模式；/bind /unbind 对称，/test 走有 7 项检查的 doctor | 无 Key 不能用面板演示；/test 会发一次最小请求 |
 
 ## 决策之间的依赖
 

@@ -17,7 +17,7 @@
 编码 Agent 写第一版 → **循环体**里审查 Agent 逐条对照验收项给结论、机器验收用 AST + pytest 给客观证据，
 不通过则修复 Agent 定点修复，**重复这一循环直到审核通过**，或轮次预算耗尽熔断。
 
-两个入口共用同一套代码：双击 `dist\WorkflowPanel.exe`（桌面面板），或
+两个入口共用同一套代码：双击 `WorkflowPanel.exe`（桌面面板），或
 `python -m workflow.cli`（命令行，也是面板内部真正执行的东西）。
 
 ### 1.2 为什么选「代码审查」这个流程
@@ -261,8 +261,10 @@ WorkflowPanel.exe  ──无参数──▶ Tkinter 面板（launcher/panel.py�
 
 面板是聊天式的：输入一句需求就开跑，编排器把 `session / code / verification / review / loop / done`
 事件推回来，面板逐条渲染成对话（代码预览、验收证据、问题清单、分支、终态）。
-斜杠指令覆盖日常配置：`/help`、`/status`、`/key`（写 `.env`、回显脱敏）、`/model`、`/base`、
-`/mode`、`/rounds`、`/parallel`、`/run`、`/report`、`/clear`、`/stop`（DEC-016）。
+斜杠指令覆盖日常配置：`/help`、`/bind`（写 `.env`、回显脱敏）、`/unbind`、`/test`（链路自检：文件 /
+目录 / 配置 / Key / 模型连通 / pytest）、`/status`、`/model`、`/base`、`/rounds`、`/parallel`、
+`/run`、`/report`、`/version`、`/clear`、`/stop`（DEC-016、DEC-018）。
+**面板固定 live，离线 mock 已禁用**：没有 Key 时 `/test` 会直接指出并给出 `/bind` 建议。
 
 ### 3.9 可观测性
 
@@ -294,8 +296,8 @@ python -m pip install -r requirements.txt   # requests + pytest
 
 ### 4.2 双击面板（推荐）
 
-双击 `dist\WorkflowPanel.exe` → 选任务/模式 → 「▶ 运行工作流」。日志实时回显，
-结束状态显示「完成 · 通过 ✅ / 未通过 ❌」与退出码。首次使用若没有 `dist\WorkflowPanel.exe`，
+双击 `WorkflowPanel.exe` → 选任务/模式 → 「▶ 运行工作流」。日志实时回显，
+结束状态显示「完成 · 通过 ✅ / 未通过 ❌」与退出码。首次使用若没有 `WorkflowPanel.exe`，
 先执行一次 `scripts\build_exe.ps1`（或直接 `python launcher\app.py` 用源码开面板）。
 
 ### 4.3 离线跑通（不需要 API Key）

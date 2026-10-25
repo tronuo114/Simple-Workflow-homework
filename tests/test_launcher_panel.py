@@ -57,7 +57,6 @@ def chat_text(panel) -> str:
 def test_command_runs_events_mode_with_prompt_file(panel, tmp_path) -> None:
     prompt_file = tmp_path / "req.md"
     prompt_file.write_text("写一个 LRU", encoding="utf-8")
-    panel.mode_var.set("mock")
     panel.rounds_var.set(4)
 
     cmd = panel.build_command(prompt_file)
@@ -67,17 +66,17 @@ def test_command_runs_events_mode_with_prompt_file(panel, tmp_path) -> None:
     assert "--prompt-file" in cmd and cmd[cmd.index("--prompt-file") + 1] == str(prompt_file)
     assert "--events" in cmd
     assert cmd[cmd.index("--rounds") + 1] == "4"
-    assert "--mock" in cmd and "--live" not in cmd
+    # 离线 mock 已禁用：面板始终以 live 运行
+    assert "--live" in cmd and "--mock" not in cmd
     assert "--parallel-review" not in cmd
 
 
-def test_live_and_parallel_flags(panel, tmp_path) -> None:
-    panel.mode_var.set("live")
+def test_parallel_flag_is_forwarded(panel, tmp_path) -> None:
     panel.parallel_var.set(True)
 
     cmd = panel.build_command(tmp_path / "req.md")
 
-    assert "--live" in cmd and "--mock" not in cmd
+    assert "--live" in cmd
     assert "--parallel-review" in cmd
 
 
@@ -156,12 +155,13 @@ def test_help_lists_commands(panel) -> None:
     panel._handle_command("/help")
 
     text = chat_text(panel)
-    assert "/key" in text and "/mode" in text and "/status" in text
-    assert "绑定" in text
+    for cmd in ("/bind", "/unbind", "/test", "/status", "/version", "/rounds"):
+        assert cmd in text
+    assert "离线 mock 已禁用" in text
 
 
-def test_key_command_writes_env_without_leaking(panel) -> None:
-    panel._handle_command("/key sk-abcdef1234567890")
+def test_bind_command_writes_env_without_leaking(panel) -> None:
+    panel._handle_command("/bind sk-abcdef1234567890")
 
     env = (panel.home / ".env").read_text(encoding="utf-8")
     assert "AGENT_API_KEY=sk-abcdef1234567890" in env
@@ -169,6 +169,16 @@ def test_key_command_writes_env_without_leaking(panel) -> None:
     assert "已绑定" in text
     assert "sk-abcdef1234567890" not in text          # 完整 Key 不得回显
     assert "sk-a…7890" in text
+
+
+def test_unbind_removes_key(panel) -> None:
+    panel._handle_command("/bind sk-abcdef1234567890")
+    panel._handle_command("/unbind")
+
+    env_path = panel.home / ".env"
+    env = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
+    assert "AGENT_API_KEY" not in env
+    assert "已解绑" in chat_text(panel)
 
 
 def test_status_reports_current_settings(panel) -> None:
@@ -180,17 +190,43 @@ def test_status_reports_current_settings(panel) -> None:
     text = chat_text(panel)
     assert "轮次上限：5" in text
     assert "并行审查：开" in text
+    assert "live" in text and "离线 mock 已禁用" in text
 
 
-def test_mode_rounds_parallel_commands(panel) -> None:
+def test_rounds_and_parallel_commands(panel) -> None:
     panel._handle_command("/rounds 7")
     panel._handle_command("/parallel on")
-    panel._handle_command("/mode live")
 
     assert panel.rounds_var.get() == 7
     assert panel.parallel_var.get() is True
-    assert panel.mode_var.get() == "live"
-    assert "还没有 API Key" in chat_text(panel)        # live 但未绑定 Key 会提醒
+
+
+def test_mode_command_reports_offline_disabled(panel) -> None:
+    panel._handle_command("/mode mock")
+
+    assert "离线 mock 已禁用" in chat_text(panel)
+
+
+def test_test_command_runs_doctor(panel) -> None:
+    panel._handle_command("/test")
+
+    assert panel.started, "应当启动 doctor 子进程"
+    cmd, label = panel.started[-1]
+    assert "doctor" in cmd and "--events" in cmd
+    assert label == "链路自检"
+
+
+def test_doctor_events_render_checklist(panel) -> None:
+    panel.render_event({"type": "check", "name": "API Key", "ok": True, "detail": "已绑定"})
+    panel.render_event({"type": "check", "name": "模型连通", "ok": False,
+                        "detail": "HTTP 401", "hint": "重新 /bind"})
+    panel.render_event({"type": "doctor", "ok": False, "summary": "未通过：模型连通"})
+
+    text = chat_text(panel)
+    assert "✅ API Key" in text
+    assert "❌ 模型连通" in text
+    assert "重新 /bind" in text
+    assert "链路自检未通过" in text
 
 
 def test_unknown_command_is_reported(panel) -> None:
@@ -206,7 +242,7 @@ def test_bare_help_is_a_command_not_a_requirement(panel) -> None:
     panel.send()
 
     assert not panel.started                       # 没有启动子进程
-    assert "/key" in chat_text(panel)              # 显示的是帮助
+    assert "/bind" in chat_text(panel)             # 显示的是帮助
 
 
 def test_fullwidth_slash_is_normalized(panel) -> None:

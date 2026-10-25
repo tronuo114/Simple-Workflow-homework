@@ -3,12 +3,17 @@ chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
 
+rem 入口优先用仓库根目录的 exe（随仓库提交，评审可直接双击）
+if exist "%~dp0WorkflowPanel.exe" (
+    start "" "%~dp0WorkflowPanel.exe"
+    exit /b 0
+)
 if exist "%~dp0dist\WorkflowPanel.exe" (
     start "" "%~dp0dist\WorkflowPanel.exe"
     exit /b 0
 )
 
-echo 还没打包 exe：没找到 dist\WorkflowPanel.exe
+echo 还没打包 exe：没找到 WorkflowPanel.exe
 echo.
 echo 先执行一次（只需一次）：
 echo     powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1

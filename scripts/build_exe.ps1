@@ -36,9 +36,14 @@ if ($LASTEXITCODE -ne 0) { throw "打包失败，看上面的日志" }
 
 $exe = Join-Path $script:RepoRoot 'dist\WorkflowPanel.exe'
 if (-not (Test-Path $exe)) { throw "没找到产物：$exe" }
-$size = [math]::Round((Get-Item $exe).Length / 1MB, 1)
 
-Write-Host "`n打包完成：$exe（$size MB）" -ForegroundColor Green
-Write-Host "  双击 → 打开聊天面板（面板内 /version 可看构建时间）" -ForegroundColor Yellow
-Write-Host "  命令行 → & '$exe' --version" -ForegroundColor Yellow
-Write-Host "          & '$exe' --cli run --task ttl_cache --mock" -ForegroundColor Yellow
+# 同时拷贝一份到仓库根：ghpush 默认忽略 dist/，根目录的 exe 才会随仓库提交
+$rootExe = Join-Path $script:RepoRoot 'WorkflowPanel.exe'
+Copy-Item $exe $rootExe -Force
+$size = [math]::Round((Get-Item $rootExe).Length / 1MB, 1)
+
+Write-Host "`n打包完成：$exe" -ForegroundColor Green
+Write-Host "入口副本：$rootExe（$size MB，随仓库提交）" -ForegroundColor Green
+Write-Host "  双击 WorkflowPanel.exe → 打开聊天面板（面板内 /version 可看构建时间）" -ForegroundColor Yellow
+Write-Host "  命令行 → & '.\WorkflowPanel.exe' --version" -ForegroundColor Yellow
+Write-Host "          & '.\WorkflowPanel.exe' --cli run --task ttl_cache --mock" -ForegroundColor Yellow

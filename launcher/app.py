@@ -47,7 +47,7 @@ def _selftest() -> int:
     panel.clear_chat()
     panel._handle_command("/help")
     text = panel.chat.get("1.0", "end")
-    slash_ok = "/key" in text and "/mode" in text
+    slash_ok = all(cmd in text for cmd in ("/bind", "/unbind", "/test", "/status"))
     panel._handle_command("/version")
     version_ok = "面板构建" in panel.chat.get("1.0", "end")
     root.destroy()

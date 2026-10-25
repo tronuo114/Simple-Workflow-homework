@@ -106,6 +106,30 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0 if state.phase == "APPROVED" else 1
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """链路自检：文件 / 目录 / 配置 / Key / 模型连通 / pytest / 事件流。"""
+    from workflow.doctor import run_checks, summary
+
+    checks = run_checks(live=not getattr(args, "offline", False))
+    ok = all(c["ok"] for c in checks)
+
+    if getattr(args, "events", False):
+        for check in checks:
+            print(json.dumps({"type": "check", **check}, ensure_ascii=False), flush=True)
+        print(json.dumps({"type": "doctor", "ok": ok, "summary": summary(checks)},
+                         ensure_ascii=False), flush=True)
+    else:
+        print("链路自检")
+        for check in checks:
+            mark = "✅" if check["ok"] else "❌"
+            print(f"  {mark} {check['name']}: {check['detail']}")
+            if not check["ok"] and check.get("hint"):
+                print(f"     → {check['hint']}")
+        print("")
+        print(f"结论：{'✅ ' if ok else '❌ '}{summary(checks)}")
+    return 0 if ok else 1
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     task = Task.load(args.task)
     path = Path(args.file) if args.file else task.solution_path
@@ -201,6 +225,11 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--file", default=None, help="待验收文件（默认 solutions/<target>）")
     v.add_argument("--no-tests", action="store_true", help="跳过 pytest")
     v.set_defaults(func=cmd_verify)
+
+    d = sub.add_parser("doctor", help="链路自检：文件 / 配置 / Key / 模型连通 / pytest")
+    d.add_argument("--events", action="store_true", help="输出 JSONL 事件流")
+    d.add_argument("--offline", action="store_true", help="跳过模型连通检查（不发网络请求）")
+    d.set_defaults(func=cmd_doctor)
 
     t = sub.add_parser("tasks", help="列出任务")
     t.set_defaults(func=cmd_tasks)

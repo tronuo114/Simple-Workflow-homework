@@ -5,10 +5,10 @@
 带消息总线、状态机、循环轨迹、事件流、并行审查、断点续跑和全链路决策记录（DEC），
 并用它完成了验收题「带过期时间的 LRU 缓存」。
 
-入口有两个，同一套代码：**双击 `dist\WorkflowPanel.exe` 打开聊天面板**（输入需求 → 看它跑到通过），
+入口有两个，同一套代码：**双击 `WorkflowPanel.exe` 打开聊天面板**（输入需求 → 看它跑到通过），
 或命令行 `python -m workflow.cli`。
 
-[![tests](https://img.shields.io/badge/tests-55%20passed-brightgreen)](tests/)
+[![tests](https://img.shields.io/badge/tests-59%20passed-brightgreen)](tests/)
 [![workflow](https://img.shields.io/badge/workflow-loop%20until%20APPROVED-blue)](#52-循环体直到代码审核通过)
 [![panel](https://img.shields.io/badge/panel-chat%20UI-9cf)](#13-第一次运行30-秒)
 [![decisions](https://img.shields.io/badge/decisions-16%20project%20%2B%20per--run-orange)](DECISIONS.md)
@@ -17,7 +17,7 @@
 
 > 交付物：**README.md**（本文件：环境搭建、使用方法、需求对照）、**[Design.md](Design.md)**（设计文档）、
 > **[DECISIONS.md](DECISIONS.md)**（决策记录）、`solutions/` + `tests/`（验收题实现与用例）、
-> `dist/WorkflowPanel.exe`（聊天式桌面入口）。
+> `WorkflowPanel.exe`（聊天式桌面入口）。
 
 ---
 
@@ -55,18 +55,20 @@
 | 打包依赖（可选） | `pyinstaller` | 只在重新生成 exe 时需要 |
 | 磁盘 | 约 100 MB | 依赖 + exe（18 MB）+ 每次运行的 `runs/` |
 
-离线 mock 模式**不需要 API Key**；接真实模型才需要 `AGENT_API_KEY`。
+**需要 `AGENT_API_KEY`**（面板已禁用离线模式）。首次使用在面板里 `/bind sk-xxxxxxxx` 绑定，
+`/test` 自检全绿后再输入需求；Key 只写本地 `.env`，不入库、不回显完整值。
+（离线演示仅保留在命令行：`python -m workflow.cli run --task ttl_cache --mock`，不需要 Key。）
 
 ### 1.2 安装依赖
 
 **方式 A：不安装，直接双击（推荐给演示/评审）**
 
 ```
-双击 dist\WorkflowPanel.exe   →  在聊天框里输入需求（例：用 Python 写一个带过期时间的 LRU 缓存 TTLCache）
+双击 WorkflowPanel.exe   →  在聊天框里输入需求（例：用 Python 写一个带过期时间的 LRU 缓存 TTLCache）
 ```
 
 exe 里已打包 Python、`requests`、`pytest` 以及 `tasks/ tests/ mock/ config/`，目标机器无需装 Python。
-仓库里已带这份产物（`dist\WorkflowPanel.exe`，约 18 MB）；若它缺失或版本落后，见 [1.5 重新打包](#15-重新打包-exe)。
+仓库里已带这份产物（`WorkflowPanel.exe`，约 18 MB）；若它缺失或版本落后，见 [1.5 重新打包](#15-重新打包-exe)。
 
 **方式 B：源码方式（推荐给开发/调试）**
 
@@ -81,9 +83,9 @@ python -m pip install -r requirements.txt
 
 ### 1.3 第一次运行（30 秒）
 
-**A. 聊天面板**：双击 `dist\WorkflowPanel.exe` → 输入框里写需求（或点「示例需求」）→ 按 **Enter** 或点「发送」。
+**A. 聊天面板**：双击 `WorkflowPanel.exe` → 输入框里写需求（或点「示例需求」）→ 按 **Enter** 或点「发送」。
 
-> 输入 `/help` 可以看全部指令；接真实模型只需两步：`/key sk-xxxxxxxx` 绑定 Key → `/mode live`。
+> 输入 `/help` 可以看全部指令；首次使用：`/bind sk-xxxxxxxx` 绑定 Key → `/test` 自检 → 直接输入需求（面板已禁用离线模式）。
 
 面板会实时把工作流画成一段对话：
 
@@ -129,7 +131,7 @@ python -m workflow.cli run --task ttl_cache --mock
 ### 1.4 验证环境
 
 ```powershell
-python -m pytest -q                              # 55 passed（25 缓存 + 5 循环 + 16 面板 + 3 聊天 + 3 并行 + 3 扩展）
+python -m pytest -q                              # 59 passed（25 缓存 + 5 循环 + 20 面板 + 3 聊天 + 3 并行 + 3 扩展）
 python -m workflow.cli verify --task ttl_cache   # ✅ 通过（25 passed）
 ```
 
@@ -141,26 +143,26 @@ python -m workflow.cli verify --task ttl_cache   # ✅ 通过（25 passed）
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
-# 产物：dist\WorkflowPanel.exe（约 18 MB）
+# 产物：WorkflowPanel.exe（约 18 MB）
 ```
 
 - 打包配置：`launcher.spec`（单文件，含 `tasks/tests/mock/config` 与 pytest）
 - `pyinstaller-hooks/hook-workflow.py`：覆盖社区同名 hook（PyPI 上也有个 `workflow` 包），否则打包报错
-- `dist/WorkflowPanel.exe` 随仓库一起提交（约 18 MB），评审可直接双击；`build/` 是中间目录，不入库
+- `WorkflowPanel.exe` 随仓库一起提交（约 18 MB），评审可直接双击；`build/` 是中间目录，不入库
 
-没有 Python 环境时，可以先在有 Python 的机器上执行上面的命令，再把 `dist\WorkflowPanel.exe` 拷过去。
+没有 Python 环境时，可以先在有 Python 的机器上执行上面的命令，再把 `WorkflowPanel.exe` 拷过去。
 
 ### 1.6 环境问题排查
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `未找到可用的 Python 3 解释器` | PATH 上没有真实解释器 | `setx PYTHON "C:\Python312\python.exe"`，或脚本传 `-Python <路径>` |
-| `缺少 API Key：在 .env 里设置 AGENT_API_KEY` | 用了 `--live` 但没有 Key | 面板里 `/key sk-xxxx` 绑定，或 `/mode mock`；命令行见 `.env.example` |
-| 输入 `/help` 却被当成需求去跑工作流 | 打开的是**旧窗口**（exe 更新前启动的进程） | 面板里 `/version` 看构建时间；关掉面板重新双击 `dist\WorkflowPanel.exe` |
-| 想知道 exe 是不是最新 | — | 命令行 `dist\WorkflowPanel.exe --version`，或 `--selftest`（输出 `slash-commands: OK`） |
+| `缺少 API Key：在 .env 里设置 AGENT_API_KEY` | 用了 `--live` 但没有 Key | 面板里 `/bind sk-xxxx` 绑定，然后 `/test` 自检；命令行见 `.env.example` |
+| 输入 `/help` 却被当成需求去跑工作流 | 打开的是**旧窗口**（exe 更新前启动的进程） | 面板里 `/version` 看构建时间；关掉面板重新双击 `WorkflowPanel.exe` |
+| 想知道 exe 是不是最新 | — | 命令行 `WorkflowPanel.exe --version`，或 `--selftest`（输出 `slash-commands: OK`） |
 | 终端输出中文乱码 | 控制台编码不是 UTF-8 | `$env:PYTHONIOENCODING = "utf-8"`；`.ps1` 脚本已是 UTF-8 BOM |
 | 双击 exe 没反应 / 被 SmartScreen 拦 | 未签名的新 exe | 右键属性 → 解除锁定；或用 `WorkflowPanel.cmd` 启动 |
-| 面板启动后立即退出 | 缺文件或被拦截 | 用命令行跑 `dist\WorkflowPanel.exe --cli tasks` 看是否报错 |
+| 面板启动后立即退出 | 缺文件或被拦截 | 用命令行跑 `WorkflowPanel.exe --cli tasks` 看是否报错 |
 | 面板报「找不到任务」 | exe 被单独拷到了无源码的目录 | 设 `WORKFLOW_HOME` 指向仓库根；或把 exe 放回 `dist\` |
 | 打包失败，提示 `hook-workflow.py` | 社区 hook 与本地 `workflow` 包冲突 | 确认 `launcher.spec` 的 `hookspath` 指向 `pyinstaller-hooks/`（已配置） |
 
@@ -206,12 +208,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 | 提交物 | 位置 | 说明 |
 | --- | --- | --- |
 | 源码 | `core/ agents/ workflow/ launcher/` | 编排、Agent、基础设施、桌面入口 |
-| 可执行入口 | `dist/WorkflowPanel.exe`、`WorkflowPanel.cmd` | 双击打开面板（[DEC-015](docs/decisions/DEC-015-desktop-launcher.md)） |
+| 可执行入口 | `WorkflowPanel.exe`、`WorkflowPanel.cmd` | 双击打开面板（[DEC-015](docs/decisions/DEC-015-desktop-launcher.md)） |
 | 验收题实现 | `solutions/ttl_cache.py` | 带过期时间的 LRU 缓存（约 300 行） |
-| 测试 | `tests/`（55 个用例） | 25 缓存 + 5 循环体 + 16 面板 + 3 聊天 + 3 并行 + 3 扩展 |
+| 测试 | `tests/`（59 个用例） | 25 缓存 + 5 循环体 + 20 面板 + 3 聊天 + 3 并行 + 3 扩展 |
 | 项目说明 / 使用 | `README.md` | 本文件 |
 | 设计文档 | [Design.md](Design.md) | 分层、循环体、状态机、错误恢复、测试策略 |
-| 决策记录 | [DECISIONS.md](DECISIONS.md) + `docs/decisions/` | 17 条项目级 + 每次运行自动生成 |
+| 决策记录 | [DECISIONS.md](DECISIONS.md) + `docs/decisions/` | 18 条项目级 + 每次运行自动生成 |
 
 ### 2.4 评分维度对照
 
@@ -230,7 +232,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 .
 ├── README.md                 ← 你正在看（环境搭建 + 使用方法 + 需求对照）
 ├── Design.md                 设计文档（分层 / 循环体 / 状态机 / 错误恢复）
-├── DECISIONS.md              项目级决策索引（17 条）
+├── DECISIONS.md              项目级决策索引（18 条）
 ├── requirements.txt / .gitignore / .env.example / conftest.py / pytest.ini
 │
 ├── core/                     基础设施
@@ -239,7 +241,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 │   ├── bus.py                消息总线（收件箱 + JSONL 落盘）
 │   ├── state.py              状态机 / 迁移白名单 / 原子落盘 / loop_trace
 │   ├── dec.py                DEC 记录器（自动编号、索引重建）
-│   └── verify.py             AST 静态检查 + pytest 执行
+│   ├── verify.py             AST 静态检查 + pytest 执行
+│   └── doctor.py             链路自检（/test 的后端：文件/配置/Key/网络/pytest）
 │
 ├── agents/                   三个 Agent（无状态，只认消息）
 │   ├── base.py               共同骨架（收件箱 / 回复 / Prompt）
@@ -260,15 +263,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 ├── launcher.spec             PyInstaller 打包配置
 ├── pyinstaller-hooks/        覆盖社区 hook-workflow（与本地同名包冲突）
 ├── assets/workflow.ico       面板图标（scripts/make_icon.py 生成）
-├── dist/WorkflowPanel.exe    ★ 打包产物（随仓库提交，约 18 MB，双击即用）
-├── WorkflowPanel.cmd         双击入口（转发到 dist\WorkflowPanel.exe）
+├── WorkflowPanel.exe    ★ 打包产物（随仓库提交，约 18 MB，双击即用）
+├── WorkflowPanel.cmd         双击入口（转发到 WorkflowPanel.exe）
 │
 ├── tasks/ttl_cache/          任务：题面 / 验收项 / 元信息
 ├── solutions/ttl_cache.py    ★ 验收题实现
 ├── tests/
 │   ├── test_ttl_cache.py     25 个缓存验收用例
 │   ├── test_workflow_loop.py 5 个循环体用例（重复 / 熔断 / 机器优先 / 双阶段续跑）
-│   ├── test_launcher_panel.py 16 个聊天面板用例（命令拼装 / 发送 / 事件渲染 / 状态 / 斜杠指令）
+│   ├── test_launcher_panel.py 20 个聊天面板用例（命令拼装 / 发送 / 事件渲染 / 状态 / 斜杠指令）
 │   ├── test_prompt_mode.py   3 个聊天模式用例（一次性任务 / 测试推断 / 事件流）
 │   └── test_extensibility.py 3 个扩展性用例（注册新 Agent / 配置换流水线）
 ├── mock/                     离线场景数据（故意留坑的初稿 + 修复稿）
@@ -277,7 +280,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 │   ├── architecture.md       架构说明（分层 / 循环 / 状态机 / 扩展）
 │   ├── assets/chat.png       聊天面板截图
 │   ├── assets/help.png       /help 指令截图
-│   └── decisions/DEC-*.md    17 条项目级决策正文
+│   └── decisions/DEC-*.md    18 条项目级决策正文
 ├── examples/sample-run/      一次完整运行的真实产出
 └── scripts/                  包装脚本（自动探测解释器，无绝对路径）
     ├── _env.ps1              公共探测：Python / 仓库根 / 上传工具
@@ -339,25 +342,24 @@ python -m workflow.cli run --task ttl_cache --resume --run-id <id>
 | 指令 | 作用 |
 | --- | --- |
 | `/help` | 查看全部指令 |
-| `/key <API_KEY>` | 绑定模型 API Key：写入项目根 `.env` 的 `AGENT_API_KEY`，回显只显示前后 4 位，文件不入库 |
-| `/key` | 查看是否已绑定（脱敏显示） |
+| `/bind <API_KEY>` | **绑定 API Key**：写入项目根 `.env` 的 `AGENT_API_KEY`，回显只显示前后 4 位 |
+| `/bind` | 查看是否已绑定（脱敏显示） |
+| `/unbind` | **解绑**：从 `.env` 删除 `AGENT_API_KEY` |
+| `/test` | **链路自检**：文件 / 运行目录 / 配置 / Key / 模型连通 / pytest / 事件流，逐项给出结果与修复建议 |
 | `/model <名字>` | 设置模型，如 `/model deepseek-chat` |
 | `/base <URL>` | 设置 OpenAI 兼容接口，如 `/base https://api.deepseek.com/v1` |
-| `/mode mock\|live` | 切换离线演示 / 真实模型（live 前若没绑 Key 会提醒） |
 | `/rounds <1-20>` | 设置轮次上限（超限熔断并交出遗留问题） |
 | `/parallel on\|off` | 并行审查开关 |
-| `/status` | 查看当前配置：模式 / 轮次 / 并行 / Key（脱敏）/ 模型 / 接口 |
+| `/status` | 查看当前配置：轮次 / 并行 / Key（脱敏）/ 模型 / 接口 |
 | `/run <需求>` | 提交需求（等价于直接输入文字） |
 | `/report` | 打开最近一次运行报告 |
 | `/version` | 查看面板构建时间（确认没在跑旧 exe） |
 | `/clear` / `/stop` | 清空对话 / 停止运行 |
 
-> 绑定 Key 的完整流程：`/key sk-xxxx` → `/mode live` → 直接输入需求。
+> **离线 mock 已在面板中禁用**：面板固定走真实模型，没有 Key 就跑不了（`/mode` 会提示已禁用）。
+> 首次使用：`/bind sk-xxxx` → `/test`（全绿再开始）→ 直接输入需求。
 > Key 只写进 `.env`（已在 `.gitignore` 中），不会出现在对话、日志与报告里。
->
-> 小提示：`help` / `status` / `report` / `clear` / `stop` / `version` 不带斜杠也当指令；
-> 全角 `／help` 会自动转成半角。若 `/help` 却被当成需求去跑，说明打开的是旧窗口——
-> 输入 `/version` 对比构建时间，关掉重新双击 exe 即可。
+> 离线演示仍可用命令行：`python -m workflow.cli run --task ttl_cache --mock`。
 
 面板把每条事件翻译成对话，所以能直接看到「初版代码 → 机器验收 → 审查意见 → 分支 → 修复 → 再审 →
 通过」的完整链路；代码只显示前 14 行，完整体在 `runs/<run_id>/artifacts/`。
@@ -629,7 +631,7 @@ stateDiagram-v2
 
 - 实现：[`solutions/ttl_cache.py`](solutions/ttl_cache.py)（约 300 行，含设计注释）
 - 测试：[`tests/test_ttl_cache.py`](tests/test_ttl_cache.py)（25 个用例，0.17s 跑完）
-- 结果：`python -m pytest -q` → **55 passed**（其中缓存 25 个）
+- 结果：`python -m pytest -q` → **59 passed**（其中缓存 25 个）
 
 ### 6.2 六条要求怎么满足
 
@@ -666,7 +668,7 @@ stateDiagram-v2
 
 ## 七、决策记录（DEC）
 
-每次决策都留编号。分两层：**项目级 17 条**（正文在 `docs/decisions/`）+ **运行级**
+每次决策都留编号。分两层：**项目级 18 条**（正文在 `docs/decisions/`）+ **运行级**
 （每次运行自动编号，写入 `runs/<id>/decisions.jsonl`，汇总进 `REPORT.md`）。
 
 | 编号 | 主题 | 决定 |
@@ -688,6 +690,7 @@ stateDiagram-v2
 | [DEC-015](docs/decisions/DEC-015-desktop-launcher.md) | 桌面入口 | 单文件 exe + 三子命令，根目录统一解析 |
 | [DEC-016](docs/decisions/DEC-016-chat-entry.md) | 聊天入口 | `--prompt` 一次性任务 + `--events` 事件流 + 并行审查 |
 | [DEC-017](docs/decisions/DEC-017-agent-registry.md) | 可扩展性 | Agent 注册表 + 配置驱动流水线，新增 Agent 不改编排器 |
+| [DEC-018](docs/decisions/DEC-018-bind-doctor.md) | 绑定与自检 | 面板禁用离线；`/bind` `/unbind` 对称；`/test` 七项链路自检 |
 
 每条 DEC 都写了 **背景 / 可选项 / 决定 / 理由 / 代价与后果 / 复核条件**。
 
@@ -719,4 +722,5 @@ stateDiagram-v2
 - 桌面入口决策：[DEC-015](docs/decisions/DEC-015-desktop-launcher.md)
 - 聊天入口与并行审查：[DEC-016](docs/decisions/DEC-016-chat-entry.md)
 - 扩展机制（注册表 + 流水线配置）：[DEC-017](docs/decisions/DEC-017-agent-registry.md)
+- 绑定/解绑与链路自检：`/bind` `/unbind` `/test` — [DEC-018](docs/decisions/DEC-018-bind-doctor.md)
 - 上传工具说明：`$env:GH_PUSH_HOME\README.md`（外部工具，按 DEC-010 独立维护）

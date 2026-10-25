@@ -59,7 +59,7 @@ setx GH_PUSH_HOME "C:\path\to\github-push"
 不想敲命令就双击面板（详见第 11 节）：
 
 ```
-dist\WorkflowPanel.exe        # 输入一句需求 → 发送，面板把「编码/验收/审查/分支/修复」逐条显示
+WorkflowPanel.exe        # 输入一句需求 → 发送，面板把「编码/验收/审查/分支/修复」逐条显示
 ```
 
 ```powershell
@@ -242,19 +242,19 @@ python -m workflow.cli run --task ttl_cache --mock
 ### 11.1 直接用
 
 ```
-双击 dist\WorkflowPanel.exe
+双击 WorkflowPanel.exe
 ```
 
 exe 里打包了 Python、requests、pytest 和 `tasks/ tests/ mock/ config/`，目标机器不需要装 Python。
 面板是聊天式的：输入需求（或点「示例需求」）→ Enter 发送，工作流自己跑到审核通过；
-可切 mock/live、轮次、并行审查，可停止（杀进程树）、可打开最近报告。
+面板固定 live（离线 mock 已禁用）；可调轮次、并行审查，可停止（杀进程树）、可打开最近报告。
 
-斜杠指令：`/help`（全部指令）、`/key <API_KEY>`（绑定 Key，写 `.env` 且回显脱敏）、
-`/mode mock|live`、`/model`、`/base`、`/rounds`、`/parallel`、`/status`、`/version`、
-`/report`、`/run <需求>`、`/clear`、`/stop`。`help` 等不加斜杠也认。
+斜杠指令：`/help`、`/bind <API_KEY>`（写 `.env`、回显脱敏）、`/unbind`、`/test`（链路自检）、
+`/model`、`/base`、`/rounds`、`/parallel`、`/status`、`/version`、`/report`、`/run <需求>`、
+`/clear`、`/stop`。面板固定 live，离线 mock 已禁用；`help` 等不加斜杠也认。
 
 > 改完代码一定要**关掉旧面板再重新双击**：Windows 上已启动的进程不会自动换成新 exe。
-> 用 `/version`（面板内）或 `dist\WorkflowPanel.exe --version` 确认构建时间。
+> 用 `/version`（面板内）或 `WorkflowPanel.exe --version` 确认构建时间。
 
 ### 11.2 重新打包（改了代码之后）
 
@@ -264,16 +264,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
 # 依赖已装好可加 -SkipDeps
 ```
 
-产物：`dist\WorkflowPanel.exe`（约 18 MB）。exe 随仓库提交（评审可直接双击），`build/` 中间目录不入库。
+产物：`WorkflowPanel.exe`（约 18 MB）。exe 随仓库提交（评审可直接双击），`build/` 中间目录不入库。
 
 ### 11.3 同一条命令行的三种模式
 
 ```powershell
-dist\WorkflowPanel.exe                                    # 打开面板
-dist\WorkflowPanel.exe --version                          # 构建时间（判断是否旧 exe）
-dist\WorkflowPanel.exe --selftest                         # 自检斜杠指令是否可用
-dist\WorkflowPanel.exe --cli run --task ttl_cache --mock   # 命令行（面板内部就是这么调的）
-dist\WorkflowPanel.exe --pytest -q tests                   # 打包内 pytest（供 core/verify 使用）
+WorkflowPanel.exe                                    # 打开面板
+WorkflowPanel.exe --version                          # 构建时间（判断是否旧 exe）
+WorkflowPanel.exe --selftest                         # 自检斜杠指令是否可用
+WorkflowPanel.exe --cli run --task ttl_cache --mock   # 命令行（面板内部就是这么调的）
+WorkflowPanel.exe --pytest -q tests                   # 打包内 pytest（供 core/verify 使用）
 ```
 
 ### 11.4 打包相关的坑

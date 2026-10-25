@@ -36,22 +36,23 @@ EXAMPLE_PROMPT = "用 Python 写一个带过期时间的 LRU 缓存 TTLCache(cap
 
 HELP_TEXT = """可用指令（在输入框输入后按 Enter）：
   /help                 查看本帮助
-  /status               查看当前配置（模式 / 轮次 / 并行 / 模型 / 是否已绑定 Key）
-  /key <API_KEY>        绑定模型 API Key（写入项目根 .env，只显示前后 4 位）
-  /key                  查看是否已绑定
+  /bind <API_KEY>       绑定模型 API Key（写入项目根 .env，只显示前后 4 位）
+  /bind                 查看是否已绑定
+  /unbind               解绑（从 .env 删除 AGENT_API_KEY）
+  /test                 链路自检：文件 / 目录 / 配置 / Key / 模型连通 / pytest
+  /status               查看当前配置（模式 / 轮次 / 并行 / 模型 / 接口 / 绑定状态）
   /model <名字>          设置模型，例：/model deepseek-chat
   /base <URL>           设置 OpenAI 兼容接口，例：/base https://api.deepseek.com/v1
-  /mode mock|live       切换离线演示 / 真实模型
+  /version              查看面板构建时间（确认没在跑旧 exe）
   /rounds <1-20>        设置轮次上限（超过就熔断，交出遗留问题）
   /parallel on|off      并行审查：主审查 + 安全审查并发
   /run <需求>           提交需求（等价于直接输入文字）
   /report               打开最近一次运行报告
-  /version              查看面板构建时间（用于确认没有在跑旧 exe）
   /clear                清空对话
   /stop                 停止正在运行的工作流
 
-直接输入非 / 开头的文字 = 提交需求；Shift+Enter 换行。
-（help / status / report / clear / stop / version 不带斜杠也可以。）"""
+模式：面板固定使用真实模型（离线 mock 已禁用），运行前请先 /bind 绑定 Key。
+直接输入非 / 开头的文字 = 提交需求；Shift+Enter 换行。"""
 
 # 这些词不带斜杠也当指令处理（避免「输入 help 结果去跑工作流」）
 BARE_COMMANDS = {"help", "status", "report", "clear", "stop", "version"}
@@ -109,11 +110,11 @@ class Panel:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._append("system",
-                     "工作流聊天面板已就绪。输入一句需求（或点「示例需求」）→ 按 Enter，"
-                     "工作流会自动跑「编码 → 审查 → 修复 → 再审」，直到审核通过。\n"
+                     "工作流聊天面板已就绪（真实模型，离线 mock 已禁用）。\n"
                      f"构建：{BUILD_TIME}　项目根：{self.home}\n"
-                     "当前模式：离线 mock（不需要 API Key；接真实模型：/key <你的Key> → /mode live）\n"
-                     "输入 /help 查看全部指令（/key 绑定 Key、/mode 切换、/status 查看配置、/version 看构建时间）。")
+                     "第一次使用：`/bind sk-你的Key` 绑定 API Key → `/test` 检查链路 → 直接输入需求。\n"
+                     "输入 /help 查看全部指令（/bind /unbind /test /status /version …）。")
+        self._refresh_key_state()
 
     # ------------------------------------------------------------------ #
     # 界面
@@ -145,11 +146,10 @@ class Panel:
         params = ttk.Frame(outer)
         params.pack(fill="x", pady=(8, 6))
         ttk.Label(params, text="模式").pack(side="left")
-        self.mode_var = tk.StringVar(value="mock")
-        ttk.Radiobutton(params, text="离线 mock", value="mock",
-                        variable=self.mode_var, command=self._on_mode).pack(side="left", padx=4)
-        ttk.Radiobutton(params, text="真实模型 live", value="live",
-                        variable=self.mode_var, command=self._on_mode).pack(side="left", padx=4)
+        ttk.Label(params, text="真实模型 live（离线 mock 已禁用）",
+                  style="Hint.TLabel").pack(side="left", padx=(4, 0))
+        self.key_state = ttk.Label(params, text="", style="Hint.TLabel")
+        self.key_state.pack(side="left", padx=(12, 0))
 
         ttk.Label(params, text="轮次上限").pack(side="left", padx=(16, 4))
         self.rounds_var = tk.IntVar(value=3)
@@ -283,7 +283,7 @@ class Panel:
         arg = arg.strip()
 
         # 回显时对 Key 做脱敏，避免把完整密钥留在对话里
-        display = f"/key {_mask(arg)}" if name == "key" and arg else text
+        display = f"/{name} {_mask(arg)}" if name in ("bind", "key") and arg else text
         self._append("user", display)
 
         if name in ("help", "?", "h", ""):
@@ -302,8 +302,16 @@ class Panel:
                                    f"说明你打开的是旧窗口，关掉重开即可。")
             return
 
-        if name == "key":
-            self._cmd_key(arg)
+        if name in ("bind", "key"):
+            self._cmd_bind(arg)
+            return
+
+        if name in ("unbind", "release"):
+            self._cmd_unbind()
+            return
+
+        if name in ("test", "doctor"):
+            self._cmd_test()
             return
 
         if name in ("model", "base", "baseurl", "base_url"):
@@ -311,7 +319,8 @@ class Panel:
             return
 
         if name == "mode":
-            self._cmd_mode(arg)
+            self._append("system", "离线 mock 已禁用，面板固定使用真实模型（live）。\n"
+                                   "如需离线演示，请用命令行：python -m workflow.cli run --task ttl_cache --mock")
             return
 
         if name == "rounds":
@@ -346,28 +355,52 @@ class Panel:
 
         self._append("error", f"未知指令 /{name}。输入 /help 查看可用指令。")
 
-    def _cmd_key(self, arg: str) -> None:
+    def _cmd_bind(self, arg: str) -> None:
         if not arg:
             key = self._read_env().get("AGENT_API_KEY", "")
             if key:
                 self._append("system", f"已绑定 API Key：{_mask(key)}\n"
                                        f"文件：{self.home / '.env'}\n"
-                                       f"需要更换：/key sk-新的Key")
+                                       f"更换：/bind sk-新的Key　解绑：/unbind")
             else:
-                self._append("system", "还没有绑定 API Key。\n"
-                                       "绑定：/key sk-xxxxxxxx\n"
-                                       "（写入项目根 .env 的 AGENT_API_KEY；该文件已被 .gitignore 忽略）\n"
-                                       "绑定后 /mode live 切换到真实模型；没有 Key 就用 /mode mock 离线演示。")
+                self._append("system", "还没有绑定 API Key（离线 mock 已禁用，没有 Key 无法运行）。\n"
+                                       "绑定：/bind sk-xxxxxxxx\n"
+                                       "（写入项目根 .env 的 AGENT_API_KEY；该文件被 .gitignore 忽略）\n"
+                                       "绑定后直接输入需求即可；可用 /test 检查链路。")
             return
 
         if len(arg) < 8:
-            self._append("error", "Key 看起来太短了。用法：/key sk-xxxxxxxx")
+            self._append("error", "Key 看起来太短了。用法：/bind sk-xxxxxxxx")
             return
 
         self._write_env({"AGENT_API_KEY": arg})
+        self._refresh_key_state()
         self._append("system", f"✅ 已绑定 API Key：{_mask(arg)}\n"
                                f"已写入 {self.home / '.env'}（不入库）\n"
-                               f"接下来：/mode live 切到真实模型，然后直接输入需求。")
+                               f"下一步：/test 检查链路，然后直接输入需求。")
+
+    def _cmd_unbind(self) -> None:
+        key = self._read_env().get("AGENT_API_KEY", "")
+        if not key:
+            self._append("system", "当前没有绑定 API Key，无需解绑。")
+            return
+        self._remove_env("AGENT_API_KEY")
+        self._refresh_key_state()
+        self._append("system", f"✅ 已解绑 API Key（原 {_mask(key)}）。\n"
+                               f".env 中的 AGENT_API_KEY 已删除；重新绑定用 /bind sk-xxxxxxxx。")
+
+    def _cmd_test(self) -> None:
+        if self._busy:
+            self._append("error", "正在运行工作流，等它结束再 /test。")
+            return
+        self._append("system", "开始链路自检（文件 / 目录 / 配置 / Key / 模型连通 / pytest）…")
+        cmd = self._cli_base() + ["doctor", "--events"]
+        self._start(cmd, "链路自检")
+
+    def _cli_base(self) -> List[str]:
+        if is_frozen():
+            return [sys.executable, "--cli"]
+        return [sys.executable, "-m", "workflow.cli"]
 
     def _cmd_env(self, name: str, arg: str) -> None:
         key = {"model": "AGENT_MODEL", "base": "AGENT_BASE_URL",
@@ -378,16 +411,6 @@ class Panel:
             return
         self._write_env({key: arg})
         self._append("system", f"✅ 已设置{label}：{arg}（写入 .env）")
-
-    def _cmd_mode(self, arg: str) -> None:
-        if arg not in ("mock", "live"):
-            self._append("system", f"当前模式：{self.mode_var.get()}（用法：/mode mock 或 /mode live）")
-            return
-        self.mode_var.set(arg)
-        if arg == "live" and not self._has_api_key():
-            self._append("error", "已切到 live，但还没有 API Key。先 /key sk-xxxxxxxx，否则调用会失败。")
-        else:
-            self._append("system", f"✅ 模式已切换：{arg}" + ("（真实模型）" if arg == "live" else "（离线脚本化）"))
 
     def _cmd_rounds(self, arg: str) -> None:
         if not arg.isdigit() or not (1 <= int(arg) <= 20):
@@ -442,32 +465,46 @@ class Panel:
             lines.append(f"{key}={value}")
         path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
+    def _remove_env(self, key: str) -> None:
+        path = self.home / ".env"
+        if not path.is_file():
+            return
+        kept = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped \
+                    and stripped.split("=", 1)[0].strip() == key:
+                continue
+            kept.append(line)
+        path.write_text("\n".join(kept).rstrip() + "\n", encoding="utf-8")
+
+    def _refresh_key_state(self) -> None:
+        if not hasattr(self, "key_state"):
+            return
+        key = self._read_env().get("AGENT_API_KEY", "")
+        self.key_state.configure(text=f"Key：{_mask(key)}" if key else "Key：未绑定（/bind 绑定）")
+
     def _status_text(self) -> str:
         env = self._read_env()
         key = env.get("AGENT_API_KEY", "")
         return "\n".join([
             f"项目根：{self.home}",
-            f"模式：{self.mode_var.get()}（{'离线脚本化' if self.mode_var.get() == 'mock' else '真实模型'}）",
+            "模式：真实模型 live（离线 mock 已禁用）",
             f"轮次上限：{self.rounds_var.get()}",
             f"并行审查：{'开' if self.parallel_var.get() else '关'}",
-            f"API Key：{_mask(key) if key else '未绑定（/key sk-xxxx 绑定）'}",
+            f"API Key：{_mask(key) if key else '未绑定（/bind sk-xxxx）'}",
             f"模型：{env.get('AGENT_MODEL') or '默认（config/agents.json）'}",
             f"接口：{env.get('AGENT_BASE_URL') or '默认（config/agents.json）'}",
-            "指令：/help 查看全部；直接输入文字即提交需求。",
+            "指令：/help 查看全部；/test 检查链路。",
         ])
 
     # -- 命令 ----------------------------------------------------------- #
     def build_command(self, prompt_file: Path) -> List[str]:
-        if is_frozen():
-            base = [sys.executable, "--cli"]
-        else:
-            base = [sys.executable, "-m", "workflow.cli"]
-        args = ["run", "--prompt-file", str(prompt_file), "--events",
+        args = ["run", "--prompt-file", str(prompt_file), "--events", "--live",
                 "--rounds", str(self.rounds_var.get())]
-        args.append("--mock" if self.mode_var.get() == "mock" else "--live")
         if self.parallel_var.get():
             args.append("--parallel-review")
-        return base + args
+        return self._cli_base() + args
 
     def _start(self, cmd: List[str], label: str) -> None:
         self._set_busy(True)
@@ -542,6 +579,21 @@ class Panel:
 
     def render_event(self, event: Dict[str, Any]) -> None:
         kind = event.get("type")
+
+        if kind == "check":
+            mark = "✅" if event.get("ok") else "❌"
+            text = f"{mark} {event.get('name')}：{event.get('detail')}"
+            if not event.get("ok") and event.get("hint"):
+                text += f"\n    → {event.get('hint')}"
+            self._append("verify" if event.get("ok") else "error", text)
+            return
+
+        if kind == "doctor":
+            ok = bool(event.get("ok"))
+            self._append("done" if ok else "error",
+                         ("✅ 链路自检通过：" if ok else "❌ 链路自检未通过：")
+                         + str(event.get("summary", "")))
+            return
 
         if kind == "session":
             mode = "mock（脚本化）" if event.get("provider") == "mock" else f"live · {event.get('model')}"
