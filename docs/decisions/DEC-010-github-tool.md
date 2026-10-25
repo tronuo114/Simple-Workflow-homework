@@ -22,13 +22,14 @@
 
 ## 决定
 
-选 **方案 2**，固化到 `C:\Users\47431\.dsh\tools\github-push\`：
+选 **方案 2**，固化到一个**独立于任何项目**的工具目录（用环境变量 `GH_PUSH_HOME` 引用，
+路径本身不写死，见 [DEC-013](DEC-013-portability.md)）：
 
 | 文件 | 职责 |
 | --- | --- |
 | `ghpush.py` | 主程序：blob → tree → commit → update ref |
 | `.env` | `GITHUB_TOKEN` / `DEFAULT_REPO`（已被上传工具自身排除，不入库） |
-| `push.ps1` / `push.cmd` | 包装，省去记参数 |
+| `push.ps1` / `push.cmd` | 包装，省去记参数（自动探测 Python） |
 | `logs/push.jsonl` | 每次推送的落盘记录（时间/仓库/commit/文件数） |
 | `README.md` | 用法与安全提醒 |
 
@@ -37,14 +38,15 @@
 - 一次调用只产生**一个 commit**（Git Data API），而不是逐个文件 Contents API 提交，
   避免仓库出现十几个 "Update xxx" 的噪音提交；
 - 默认**不删除**远端多余文件（`--delete-missing` 才删），防止误删仓库内容；
-- 默认忽略 `.env`、`runs/`、`__pycache__/`、`.venv/` 等，密钥类文件天然上不去。
+- 默认忽略 `.env`、`runs/`、`__pycache__/`、`.venv/` 等，密钥类文件天然上不去；
+- 自动读取项目根目录的 `.gitignore`，项目规则即工具规则。
 
 ## 理由
 
-- 零安装：只要 Python + `requests`，这台机器已有（`D:\python\python.exe`，3.13.9）。
+- 零安装：只要 Python + `requests`（机器上已有 Python 3.13.9）。
 - 原子提交：一次上传一个 commit，历史干净，出问题好回滚。
 - 有留痕：`logs/push.jsonl` 记录每次推送，解决「不知道上次推了什么」。
-- 路径固定：以后任何项目都复用它，不再产生临时脚本。
+- 位置固定：以后任何项目都复用它，不再产生临时脚本。
 
 ## 代价与后果
 

@@ -1,17 +1,18 @@
-# 跑测试 + 静态验收
-# 用法: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify.ps1
+﻿# 跑测试 + 静态验收
+# 用法: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1
+param([string]$Python)
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$py = if (Test-Path "D:\python\python.exe") { "D:\python\python.exe" } else { "python" }
+. "$PSScriptRoot\_env.ps1"
 
-Set-Location $root
+$py = Resolve-Python $Python
+Set-Location $script:RepoRoot
 $env:PYTHONIOENCODING = "utf-8"
 
 Write-Host "== pytest ==" -ForegroundColor Cyan
-& $py -m pytest -q
+& $py -m pytest
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "`n== 静态验收（AST 检查 + 再跑一遍测试）==" -ForegroundColor Cyan
+Write-Host "`n== 静态验收（AST 检查 + 复跑测试）==" -ForegroundColor Cyan
 & $py -m workflow.cli verify --task ttl_cache
 exit $LASTEXITCODE

@@ -225,18 +225,22 @@ TTL 用例全部「推进时间」而非「等待时间」。复杂度用两条�
 
 ### 6.1 环境
 
-- Python 3.9+（本机用 `D:\python\python.exe`，3.13.9）
+- Python 3.9+（有 `python` 在 PATH 即可；没有就设 `PYTHON` 指向解释器）
 - 依赖：`requests`（运行时）、`pytest`（测试）
 
 ```powershell
-D:\python\python.exe -m pip install -r requirements.txt
+# 在仓库根目录执行（仓库内没有任何绝对路径，放哪个盘都行）
+python -m pip install -r requirements.txt
 ```
+
+> 换电脑只需配两个环境变量：`PYTHON`（解释器）与 `GH_PUSH_HOME`（外部上传工具）。
+> 详见 [docs/runbook.md](docs/runbook.md) 第 10 节。
 
 ### 6.2 离线跑通（不需要 API Key，30 秒）
 
 ```powershell
-cd "D:\web扫雷\工作流"
-D:\python\python.exe -m workflow.cli run --task ttl_cache --mock
+cd <仓库根>
+python -m workflow.cli run --task ttl_cache --mock
 ```
 
 输出（真实运行记录）：
@@ -268,7 +272,7 @@ runs/<run_id>/
 
 ```powershell
 Copy-Item .env.example .env      # 填 AGENT_API_KEY
-D:\python\python.exe -m workflow.cli run --task ttl_cache --live --rounds 3 --apply
+python -m workflow.cli run --task ttl_cache --live --rounds 3 --apply
 ```
 
 `--apply` 只在 `APPROVED` 时把产物写入 `solutions/`，并记一条 DEC。
@@ -276,12 +280,15 @@ D:\python\python.exe -m workflow.cli run --task ttl_cache --live --rounds 3 --ap
 ### 6.4 常用命令
 
 ```powershell
-python -m workflow.cli tasks                  # 列出任务
+python -m workflow.cli tasks                   # 列出任务
 python -m workflow.cli verify --task ttl_cache # 只跑双层验收，不起 Agent
-python -m workflow.cli runs                   # 历史运行
+python -m workflow.cli runs                    # 历史运行
 python -m workflow.cli run --task ttl_cache --resume --run-id <id>   # 断点续跑
-powershell -File scripts\demo.ps1             # 一键演示
-powershell -File scripts\verify.ps1           # 一键验收
+
+# 包装脚本（自动探测解释器 + 切到仓库根，同样不含绝对路径）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo.ps1    # 一键演示
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1  # 一键验收
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  # 一键上传预览
 ```
 
 ### 6.5 mock 与 live 的区别（别误读）
@@ -333,31 +340,37 @@ mock 场景是「编排逻辑的单元测试」，不能作为「模型能写出
 
 ---
 
-## 八、固定工具：GitHub 上传
+## 八、固定工具：GitHub 上传（跨机器可移植）
 
-这台机器 `git` 不在 PATH 里。此前每次上传都是临时拼脚本，用完就散、无法追溯。
-按 [DEC-010](docs/decisions/DEC-010-github-tool.md)，工具**固化**到：
+`git` 不在 PATH 里的机器上，此前每次上传都是临时拼脚本，用完就散、无法追溯。
+按 [DEC-010](docs/decisions/DEC-010-github-tool.md) 把工具**固化**成一个独立目录，
+按 [DEC-013](docs/decisions/DEC-013-portability.md) 让它的位置可配置、不写死：
 
 ```
-C:\Users\47431\.dsh\tools\github-push\
-├── ghpush.py      主程序（blob → tree → commit → update ref，一次一个原子 commit）
-├── .env           GITHUB_TOKEN / DEFAULT_REPO（永不上传）
-├── push.ps1       包装（参数透传）
-├── push.cmd       cmd 版包装
-├── README.md      用法与安全提醒
+%GH_PUSH_HOME%\
+├── ghpush.py       主程序（blob → tree → commit → update ref，一次一个原子 commit）
+├── .env            GITHUB_TOKEN / DEFAULT_REPO（永不上传）
+├── push.ps1        包装（自动探测 Python）
+├── push.cmd        cmd 版包装
+├── README.md       用法与安全提醒
 └── logs/push.jsonl 每次推送的落盘记录
 ```
 
-用法：
+工具内部所有路径都由 `ghpush.py` 自身位置推导，整个目录可以随便搬。定位顺序：
+`-GhPush <路径>` → `$env:GH_PUSH_HOME` → PATH 上的 `ghpush` → 与仓库同级的 `github-push\`。
+
+用法（在仓库根执行，`--dir .` 就是当前仓库）：
 
 ```powershell
 # 预览（不提交）
-& D:\python\python.exe C:\Users\47431\.dsh\tools\github-push\ghpush.py `
-    --repo owner/name --dir "D:\web扫雷\工作流" --dry-run
+python "$env:GH_PUSH_HOME\ghpush.py" --dir . --dry-run
 
-# 正式上传
-& D:\python\python.exe C:\Users\47431\.dsh\tools\github-push\ghpush.py `
-    --repo owner/name --dir "D:\web扫雷\工作流" -m "feat: 三 Agent 工作流"
+# 正式上传（--repo 不传就用工具 .env 里的 DEFAULT_REPO）
+python "$env:GH_PUSH_HOME\ghpush.py" --dir . -m "feat: 三 Agent 工作流"
+
+# 或者用仓库自带的包装脚本（自动找工具、自动找解释器）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -Message "feat: xxx"
 ```
 
 设计要点：
@@ -365,7 +378,8 @@ C:\Users\47431\.dsh\tools\github-push\
 - **零安装**：只要 Python + requests，不需要 git / gh；
 - **原子提交**：一次上传 = 一个 commit，不是十几个 "Update xxx"；
 - **增量**：本地用 git blob sha1 算内容指纹，只上传真正变化的文件；
-- **安全**：默认忽略 `.env` / `runs/` / `__pycache__` / `.venv`，`--delete-missing` 才删远端文件；
+- **安全**：默认忽略 `.env` / `runs/` / `__pycache__` / `.venv`，并自动读取项目 `.gitignore`；
+  `--delete-missing` 才删远端文件；
 - **留痕**：每次推送写一行 `logs/push.jsonl`（时间/仓库/commit/文件数）。
 
 ---
@@ -402,11 +416,15 @@ C:\Users\47431\.dsh\tools\github-push\
 ├── tests/test_ttl_cache.py   ★ 25 个验收用例
 ├── mock/                     离线场景数据（含故意留坑的初稿）
 ├── docs/
-│   ├── runbook.md            本地运行手册（命令/产物/排错/退出码）
+│   ├── runbook.md            本地运行手册（命令/产物/排错/换机器）
 │   ├── architecture.md       架构说明（分层/状态机/扩展指南）
-│   └── decisions/DEC-*.md    12 条项目级决策正文
+│   └── decisions/DEC-*.md    13 条项目级决策正文
 ├── examples/sample-run/      一次完整运行的真实产出
-└── scripts/                  demo.ps1 / verify.ps1
+└── scripts/                  包装脚本（自动探测解释器，无绝对路径）
+    ├── _env.ps1              公共探测：Python / 仓库根 / 上传工具
+    ├── demo.ps1              一键演示（verify + mock run）
+    ├── verify.ps1            一键验收（pytest + verify）
+    └── push.ps1              一键上传（调用外部 ghpush）
 ```
 
 ---
@@ -420,11 +438,13 @@ C:\Users\47431\.dsh\tools\github-push\
 5. **成本无精细控制**：轮次是唯一预算旋钮，没有 token 计费与限流。
 6. **静态检查是启发式**：只把「锁、签名、类存在、语法」设为硬性，
    其余（有序结构、过期清理迹象）降级为警告，避免误杀正确实现。
+7. **跨机器要配环境变量**：`PYTHON`（解释器）与 `GH_PUSH_HOME`（上传工具）。
+   仓库内已无绝对路径，但这两个位置天然属于机器环境，无法写进仓库（见 [DEC-013](docs/decisions/DEC-013-portability.md)）。
 
 ## 附：相关链接
 
-- **本地运行手册（命令/产物/排错）**：[docs/runbook.md](docs/runbook.md)
+- **本地运行手册（命令/产物/排错/换机器）**：[docs/runbook.md](docs/runbook.md)
 - 项目决策索引：[DECISIONS.md](DECISIONS.md)
 - 架构说明：[docs/architecture.md](docs/architecture.md)
 - 样例运行报告：[examples/sample-run/REPORT.md](examples/sample-run/REPORT.md)
-- 上传工具说明：`C:\Users\47431\.dsh\tools\github-push\README.md`
+- 上传工具说明：`$env:GH_PUSH_HOME\README.md`（外部工具，按 DEC-010 独立维护）

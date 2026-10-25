@@ -20,9 +20,10 @@
 | [DEC-007](docs/decisions/DEC-007-ttlcache-data-structure.md) | 缓存结构 | `OrderedDict` + 到期双端队列 + 版本号；放弃最小堆 | 不支持 per-key TTL |
 | [DEC-008](docs/decisions/DEC-008-expiry-policy.md) | 过期清理 | 惰性删除 + 容量满时优先清理，不起后台线程 | 极端场景过期条目多待一会儿 |
 | [DEC-009](docs/decisions/DEC-009-testing-approach.md) | 测试策略 | 假时钟 + 结构上界 + 宽松比值测试 | 白盒断言绑定实现 |
-| [DEC-010](docs/decisions/DEC-010-github-tool.md) | 上传工具 | 固化到 `C:\Users\47431\.dsh\tools\github-push`，走 REST API | 无分支合并/LFS 等 git 能力 |
+| [DEC-010](docs/decisions/DEC-010-github-tool.md) | 上传工具 | 独立工具目录（`GH_PUSH_HOME` 引用）+ REST API | 无分支合并/LFS 等 git 能力 |
 | [DEC-011](docs/decisions/DEC-011-round-budget.md) | 预算熔断 | 3 轮上限，超限 `REJECTED` 并交出问题清单 | 复杂任务可能被过早截断 |
 | [DEC-012](docs/decisions/DEC-012-traceability.md) | 可追溯 | 项目级 + 运行级 DEC + 自动 `REPORT.md` | 运行产物不进仓库，需看 `examples/` |
+| [DEC-013](docs/decisions/DEC-013-portability.md) | 可移植性 | 仓库内零绝对路径，只留 `PYTHON` / `GH_PUSH_HOME` 两个环境变量 | 首次使用需一次性配置 |
 
 ## 决策之间的依赖
 
@@ -32,7 +33,7 @@ DEC-001 技术栈
  ├── DEC-005 模型接入 ── DEC-002 拓扑 ── DEC-011 轮次预算
  └── DEC-006 机器验收 ── DEC-009 测试策略
                         └── DEC-007 缓存结构 ── DEC-008 过期策略
-DEC-010 上传工具（环境级，独立于代码设计）
+DEC-010 上传工具（环境级，独立于代码设计）── DEC-013 可移植性（约束所有路径）
 ```
 
 ## 运行级 DEC 怎么看
