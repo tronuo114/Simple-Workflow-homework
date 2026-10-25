@@ -2,7 +2,7 @@
 
 > 每一次「选择」都留编号。本项目分两层：
 >
-> - **项目级 DEC**（`DEC-001` … `DEC-012`）：架构、技术选型、算法取舍等长期有效的决定，正文在 `docs/decisions/`。
+> - **项目级 DEC**（`DEC-001` … `DEC-017`）：架构、技术选型、算法取舍等长期有效的决定，正文在 `docs/decisions/`。
 > - **运行级 DEC**（每次运行 `DEC-001` 起，独立编号）：这次运行为什么进入修复、为什么强制驳回、
 >   为什么熔断、为什么落地，自动写入 `runs/<run_id>/decisions.jsonl`，索引见同目录 `DECISIONS.md`，
 >   并汇总进 `REPORT.md`。样例见 `examples/sample-run/`。
@@ -24,6 +24,10 @@
 | [DEC-011](docs/decisions/DEC-011-round-budget.md) | 预算熔断 | 3 轮上限，超限 `REJECTED` 并交出问题清单 | 复杂任务可能被过早截断 |
 | [DEC-012](docs/decisions/DEC-012-traceability.md) | 可追溯 | 项目级 + 运行级 DEC + 自动 `REPORT.md` | 运行产物不进仓库，需看 `examples/` |
 | [DEC-013](docs/decisions/DEC-013-portability.md) | 可移植性 | 仓库内零绝对路径，只留 `PYTHON` / `GH_PUSH_HOME` 两个环境变量 | 首次使用需一次性配置 |
+| [DEC-014](docs/decisions/DEC-014-review-loop.md) | 流程控制 | 显式 `while` 循环体「审查 → 分支 → 修复」，直到审核通过；三种出口 + `loop_trace` | 状态机与循环体概念重叠，需约定职责 |
+| [DEC-015](docs/decisions/DEC-015-desktop-launcher.md) | 桌面入口 | 单文件 exe + 三个子命令（GUI / `--cli` / `--pytest`）；根目录由 `core/paths` 统一解析 | 体积约 18 MB；启动需解包 |
+| [DEC-016](docs/decisions/DEC-016-chat-entry.md) | 聊天入口 | `--prompt` 一次性任务 + `--events` 事件流 + 并行审查（`--parallel-review`） | 自由输入通常只能做静态验收；并行审查成本 ×2 |
+| [DEC-017](docs/decisions/DEC-017-agent-registry.md) | 可扩展性 | Agent 注册表 + 配置驱动流水线；新增 Agent = 1 行注册 + 1 行配置 | 多一层间接；注册依赖模块导入 |
 
 ## 决策之间的依赖
 
@@ -31,9 +35,11 @@
 DEC-001 技术栈
  ├── DEC-003 消息总线 ── DEC-004 状态管理 ── DEC-012 可追溯
  ├── DEC-005 模型接入 ── DEC-002 拓扑 ── DEC-011 轮次预算
+ │                                      └── DEC-014 循环体（把预算变成循环的出口）
  └── DEC-006 机器验收 ── DEC-009 测试策略
                         └── DEC-007 缓存结构 ── DEC-008 过期策略
 DEC-010 上传工具（环境级，独立于代码设计）── DEC-013 可移植性（约束所有路径）
+DEC-015 桌面入口（复用 DEC-001 技术栈 + DEC-013 路径约定）── DEC-016 聊天入口（事件流 + 并行审查）
 ```
 
 ## 运行级 DEC 怎么看

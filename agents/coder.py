@@ -1,4 +1,4 @@
-﻿"""编码 Agent：按任务说明产出第一版可运行代码。"""
+"""编码 Agent：按任务说明产出第一版可运行代码。"""
 
 from __future__ import annotations
 
@@ -28,13 +28,17 @@ class CoderAgent(BaseAgent):
         task = msg.payload.get("task_spec", "")
         requirements = msg.payload.get("requirements", "")
         target = msg.payload.get("target_file", "ttl_cache.py")
+        class_name = (msg.payload.get("class_name") or "").strip()
 
         self.log(f"收到任务（第 {msg.round} 轮），开始编写 {target}")
+
+        delivery = f"单文件模块 {target}"
+        delivery += f"，顶层定义类 {class_name}。" if class_name else "，顶层定义接口清晰的类或函数。"
 
         user = self.build_user_prompt({
             "任务说明": task,
             "必须满足的验收项": requirements,
-            "交付形式": f"单文件模块 {target}，顶层定义类 TTLCache。",
+            "交付形式": delivery,
             "上一轮遗留": msg.payload.get("carry_over", "") or "（首轮，无）",
         })
 

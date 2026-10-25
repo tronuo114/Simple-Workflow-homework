@@ -20,7 +20,7 @@ $env:PYTHONIOENCODING = "utf-8"
 python -m pip install -r requirements.txt
 
 # 自检
-python -m pytest        # 期望 25 passed
+python -m pytest        # 期望 43 passed（25 缓存 + 5 循环 + 7 面板 + 3 聊天模式 + 3 并行审查）
 ```
 
 ### 解释器探测顺序（脚本会自动找，不用你写路径）
@@ -56,6 +56,12 @@ setx GH_PUSH_HOME "C:\path\to\github-push"
 | `run --mock` | ✅（脚本化输出） | ❌ | 演示/自测整条编排链路 | ~2 秒 |
 | `run --live` | ✅（真模型） | ✅ | 真实产出代码 | 30 秒–几分钟 |
 
+不想敲命令就双击面板（详见第 11 节）：
+
+```
+dist\WorkflowPanel.exe        # 输入一句需求 → 发送，面板把「编码/验收/审查/分支/修复」逐条显示
+```
+
 ```powershell
 # ① 只验收
 python -m workflow.cli verify --task ttl_cache
@@ -86,18 +92,19 @@ INIT
  └─ 记录 DEC-001~003（拓扑 / provider / 轮次上限）
 CODING
  └─ publish task → coder → 收到 code → artifacts/v1-coder.py
-REVIEWING（每轮）
- ├─ verify：AST 静态检查 + 干净工作区跑 pytest
- ├─ publish review_request（带验收证据）→ reviewer → JSON 结论
- └─ 三条分支：
-    ├─ approved 且机器通过 → APPROVED（记 DEC）
-    ├─ approved 但机器红   → 强制驳回（记 DEC）→ FIXING
-    └─ 不通过              → 有预算进 FIXING / 预算耗尽 REJECTED（记 DEC）
+REVIEWING ◀───────────────────────────────┐  ← 循环体从这里开始
+ ├─ verify：AST 静态检查 + 干净工作区跑 pytest │
+ ├─ publish review_request（带验收证据）→ reviewer → JSON 结论 │
+ └─ 三条分支：                            │
+    ├─ approved 且机器通过 → APPROVED（记 DEC）→ 退出循环 │
+    ├─ approved 但机器红   → 强制驳回（记 DEC）→ FIXING   │
+    └─ 不通过              → 有预算进 FIXING / 预算耗尽 REJECTED（记 DEC）→ 退出循环
 FIXING
- └─ publish fix_request（代码 + 问题清单）→ fixer → artifacts/vN-fixer.py → 回 REVIEWING
+ └─ publish fix_request（代码 + 问题清单）→ fixer → artifacts/vN-fixer.py ──┘
 ```
 
 预算：`max_rounds=3`（`--rounds` 可覆盖）。最坏调用次数：1 次编码 + 3 次审查 + 2 次修复。
+循环跑了几次、每轮分支结果，看 `state.json` 的 `loop_trace` 或 `REPORT.md` 的「循环轨迹」表。
 
 ## 3. 产物在哪、怎么看
 
@@ -223,9 +230,59 @@ setx PYTHON "C:\Python312\python.exe"
 setx GH_PUSH_HOME "C:\path\to\github-push"
 # 3) 重开终端
 python -m pip install -r requirements.txt
-python -m pytest                 # 25 passed
+python -m pytest                 # 43 passed
 python -m workflow.cli run --task ttl_cache --mock
 ```
 
 除这两个环境变量外，仓库里没有任何与本机相关的东西：不写盘符、不写用户名、
 不写解释器路径，`.env` 也不入库。
+
+## 11. 桌面面板与打包
+
+### 11.1 直接用
+
+```
+双击 dist\WorkflowPanel.exe
+```
+
+exe 里打包了 Python、requests、pytest 和 `tasks/ tests/ mock/ config/`，目标机器不需要装 Python。
+面板是聊天式的：输入需求（或点「示例需求」）→ Enter 发送，工作流自己跑到审核通过；
+可切 mock/live、轮次、并行审查，可停止（杀进程树）、可打开最近报告。
+
+斜杠指令：`/help`（全部指令）、`/key <API_KEY>`（绑定 Key，写 `.env` 且回显脱敏）、
+`/mode mock|live`、`/model`、`/base`、`/rounds`、`/parallel`、`/status`、`/version`、
+`/report`、`/run <需求>`、`/clear`、`/stop`。`help` 等不加斜杠也认。
+
+> 改完代码一定要**关掉旧面板再重新双击**：Windows 上已启动的进程不会自动换成新 exe。
+> 用 `/version`（面板内）或 `dist\WorkflowPanel.exe --version` 确认构建时间。
+
+### 11.2 重新打包（改了代码之后）
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
+# 或指定解释器： -Python "C:\Python312\python.exe"
+# 依赖已装好可加 -SkipDeps
+```
+
+产物：`dist\WorkflowPanel.exe`（约 18 MB）。exe 随仓库提交（评审可直接双击），`build/` 中间目录不入库。
+
+### 11.3 同一条命令行的三种模式
+
+```powershell
+dist\WorkflowPanel.exe                                    # 打开面板
+dist\WorkflowPanel.exe --version                          # 构建时间（判断是否旧 exe）
+dist\WorkflowPanel.exe --selftest                         # 自检斜杠指令是否可用
+dist\WorkflowPanel.exe --cli run --task ttl_cache --mock   # 命令行（面板内部就是这么调的）
+dist\WorkflowPanel.exe --pytest -q tests                   # 打包内 pytest（供 core/verify 使用）
+```
+
+### 11.4 打包相关的坑
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `hook-workflow.py` 报错 | PyInstaller 社区 hook 是给 PyPI 的 `workflow` 包准备的 | 已用 `pyinstaller-hooks/hook-workflow.py` 覆盖，`launcher.spec` 的 `hookspath` 指向它 |
+| 打包后 pytest 跑不起来 | `sys.executable` 变成面板自己 | `core/verify._pytest_command()` 在 `sys.frozen` 时改用 `exe --pytest` |
+| 面板找不到任务 / `runs/` 写丢 | `__file__` 指向解包临时目录 | `core/paths.app_root()` 按 `WORKFLOW_HOME` → exe 目录/上一级 → 解包目录解析 |
+| 双击没反应 | 单文件 exe 首次要解包，或被 SmartScreen 拦 | 等 1-2 秒；右键属性解除锁定；或用 `WorkflowPanel.cmd` |
+| 打包脚本中文乱码 | PowerShell 5.1 按 ANSI 读无 BOM 的 .ps1 | `scripts/*.ps1` 必须存为 UTF-8 **带 BOM** |
+

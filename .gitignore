@@ -24,6 +24,15 @@ config/agents.local.json
 Thumbs.db
 desktop.ini
 
+# ---- 打包产物 ----
+# exe 随仓库提交（评审可直接双击），中间目录与其余产物不入库
+dist/*
+!dist/WorkflowPanel.exe
+build/
+launcher/build_info.py
+*.pkg
+*.manifest
+
 # ---- 虚拟环境 ----
 .venv/
 venv/

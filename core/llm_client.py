@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,7 +23,9 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from core.paths import app_root
+
+PROJECT_ROOT = app_root()
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "agents.json"
 ENV_FILE = PROJECT_ROOT / ".env"
 
@@ -148,15 +151,18 @@ class MockProvider:
     def __init__(self, root: Path):
         self.root = root
         self.calls: Dict[str, int] = {}
+        self._lock = threading.Lock()
 
     def complete(self, agent: str, system: str, user: str) -> str:
-        count = self.calls.get(agent, 0) + 1
-        self.calls[agent] = count
+        with self._lock:
+            count = self.calls.get(agent, 0) + 1
+            self.calls[agent] = count
         name, kind = self.SCRIPT.get((agent, count), (None, None))
 
         if name is None:
-            # 脚本用完之后：审查员一律放行，编码/修复返回上一份可用代码
-            if agent == "reviewer":
+            # 脚本用完之后：审查类 Agent（含并行的安全审查）一律放行，
+            # 编码/修复返回上一份可用代码
+            if "review" in agent:
                 return json.dumps(
                     {"approved": True, "score": 90, "issues": [],
                      "summary": "脚本场景已结束，按已通过处理。"},

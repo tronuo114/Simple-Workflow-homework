@@ -26,6 +26,13 @@
     }
   },
   "limits": {
-    "max_rounds": 3
+    "max_rounds": 3,
+    "parallel_review": false
+  },
+  "_pipeline_说明": "流水线由 Agent 名字组成（见 agents/registry.py）。新增 Agent：写一个类 + register_agent 一行 + 把名字加进 reviewers 即可，编排器不用改。第一个审查者是主审查，其余仅在 --parallel-review 时并发。",
+  "pipeline": {
+    "coder": "coder",
+    "fixer": "fixer",
+    "reviewers": ["reviewer", "security_reviewer"]
   }
 }

@@ -72,6 +72,8 @@ class WorkflowState:
     review: Dict[str, Any] = field(default_factory=dict)
     verification: Dict[str, Any] = field(default_factory=dict)
     reviews: List[Dict[str, Any]] = field(default_factory=list)
+    # 循环轨迹：每跑一次「审查 → 分支判断」追加一条，是「循环体」的唯一账本
+    loop_trace: List[Dict[str, Any]] = field(default_factory=list)
     issues_open: List[Dict[str, Any]] = field(default_factory=list)
     issues_resolved: List[Dict[str, Any]] = field(default_factory=list)
     dec_ids: List[str] = field(default_factory=list)

@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sys
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from core.verify import verify_standalone
 from workflow.orchestrator import RUNS_ROOT, Orchestrator
@@ -34,9 +37,31 @@ def _setup_stdout() -> None:
             pass
 
 
+def _task_from_prompt(args: argparse.Namespace) -> Task:
+    """把聊天输入变成一次性任务（不写 tasks/，任务文件放在 runs/_prompts/<id>/）。"""
+    prompt = args.prompt or ""
+    if args.prompt_file:
+        path = Path(args.prompt_file)
+        if not path.is_file():
+            raise SystemExit(f"找不到 --prompt-file：{path}")
+        prompt = path.read_text(encoding="utf-8")
+    if not prompt.strip():
+        raise SystemExit("任务描述为空：用 --prompt 或 --prompt-file 给一句话需求")
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    alias = re.sub(r"[^0-9a-zA-Z]+", "_", prompt.strip())[:24].strip("_") or "task"
+    task_id = f"chat-{stamp}-{alias}"[:60]
+    module_name = "chat_" + re.sub(r"[^0-9a-zA-Z]+", "_", stamp)
+    root = Path(args.runs_root) / "_prompts" / task_id
+    return Task.from_prompt(
+        prompt, task_id=task_id, root=root,
+        target_file=f"{module_name}.py", module_name=module_name,
+    )
+
+
 def cmd_run(args: argparse.Namespace) -> int:
-    task = Task.load(args.task)
-    overrides = {}
+    task = _task_from_prompt(args) if (args.prompt or args.prompt_file) else Task.load(args.task)
+    overrides: Dict[str, Any] = {}
     if args.mock:
         overrides["provider"] = "mock"
     elif args.live:
@@ -46,6 +71,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     if args.base_url:
         overrides["base_url"] = args.base_url
 
+    events = bool(getattr(args, "events", False))
+    sink = (lambda e: print(json.dumps(e, ensure_ascii=False), flush=True)) if events else None
+
     orch = Orchestrator(
         task,
         run_id=args.run_id,
@@ -53,11 +81,17 @@ def cmd_run(args: argparse.Namespace) -> int:
         max_rounds=args.rounds,
         config_path=Path(args.config) if args.config else None,
         overrides=overrides,
-        verbose=not args.quiet,
+        verbose=not args.quiet and not events,
         dynamic_verify=not args.no_dynamic_verify,
         apply_solution=args.apply,
+        event_sink=sink,
+        parallel_review=True if args.parallel_review else None,
     )
     state = orch.run(resume=args.resume)
+
+    if events:
+        # 事件流模式：只输出 JSONL，人类可读摘要交给订阅方渲染
+        return 0 if state.phase == "APPROVED" else 1
 
     print("", flush=True)
     print("=" * 66)
@@ -153,6 +187,12 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--base-url", default=None, help="覆盖 API base_url")
     r.add_argument("--apply", action="store_true", help="通过后覆盖 solutions/ 下的交付文件")
     r.add_argument("--no-dynamic-verify", action="store_true", help="跳过 pytest（只做静态检查）")
+    r.add_argument("--prompt", default=None,
+                   help="聊天模式：直接把这句话作为任务（不需要 tasks/ 目录）")
+    r.add_argument("--prompt-file", default=None, help="从文件读任务描述（避免命令行转义）")
+    r.add_argument("--events", action="store_true", help="输出 JSONL 事件流（给面板/程序用）")
+    r.add_argument("--parallel-review", action="store_true",
+                   help="开启并行审查：主审查 + 安全审查两个 Agent 同时跑")
     r.add_argument("--quiet", action="store_true", help="少打印")
     r.set_defaults(func=cmd_run)
 

@@ -69,7 +69,31 @@ def build_report(
         for i in state.issues_open:
             lines.append(f"- `{i.get('id')}` [{i.get('severity')}] {i.get('problem')}")
 
-    lines += ["", "## 三、决策记录（DEC）", ""]
+    lines += ["", "## 三、循环轨迹（直到审核通过）", ""]
+    if state.loop_trace:
+        lines += [
+            "| 第几次 | 轮次 | LLM 结论 | 机器验收 | 评分 | 问题数 | 分支动作 |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for t in state.loop_trace:
+            lines.append(
+                f"| {t.get('iteration')} | {t.get('round')} | "
+                f"{'通过' if t.get('approved') else '驳回'} | "
+                f"{'✅' if t.get('machine_ok') else '❌'} | "
+                f"{t.get('score', '-')} | {t.get('issues', 0)} | {t.get('action', '')} |"
+            )
+        exit_label = {
+            Phase.APPROVED: "审核通过（正常出口）",
+            Phase.REJECTED: "轮次预算耗尽（熔断出口）",
+            Phase.FAILED: "异常（失败出口）",
+        }.get(state.phase, "未进入循环")
+        lines.append("")
+        lines.append(f"- 循环共执行 {len(state.loop_trace)} 次，出口：**{exit_label}**")
+        lines.append(f"- 其中修复 {sum(1 for t in state.loop_trace if t.get('verdict') == 'retry')} 次")
+    else:
+        lines.append("（未进入循环）")
+
+    lines += ["", "## 四、决策记录（DEC）", ""]
     decisions = dec.all()
     if decisions:
         lines += ["| 编号 | 阶段 | 标题 | 决定 |", "| --- | --- | --- | --- |"]
@@ -83,7 +107,7 @@ def build_report(
     else:
         lines.append("（无）")
 
-    lines += ["", "## 四、Agent 通信流水", ""]
+    lines += ["", "## 五、Agent 通信流水", ""]
     msgs = bus.history()
     if msgs:
         lines += ["| # | 发送 | 接收 | 类型 | 轮次 | 摘要 |", "| --- | --- | --- | --- | --- | --- |"]
@@ -95,7 +119,7 @@ def build_report(
     else:
         lines.append("（无）")
 
-    lines += ["", "## 五、模型调用", ""]
+    lines += ["", "## 六、模型调用", ""]
     if llm_calls:
         lines += ["| Agent | Provider | 字符数 | 耗时(s) | 状态 |", "| --- | --- | --- | --- | --- |"]
         for c in llm_calls:
@@ -109,7 +133,7 @@ def build_report(
     else:
         lines.append("（无）")
 
-    lines += ["", "## 六、最终代码", "", "```python", state.code.rstrip(), "```", ""]
+    lines += ["", "## 七、最终代码", "", "```python", state.code.rstrip(), "```", ""]
 
     lines += [
         "---",

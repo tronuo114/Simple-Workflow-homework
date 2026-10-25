@@ -1,47 +1,57 @@
-﻿"""Workflow 编排器：状态机 + 消息驱动 + 验收把关。
+"""Workflow 编排器：显式循环体 + 状态机 + 消息驱动 + 验收把关。
 
 拓扑（代码审查流程）
 --------------------
+整个流程只有一个核心结构：**一个循环体，直到代码审核通过**。
+
 ::
 
-    ┌──────────────────────────── orchestrator（编排器）───────────────────────────┐
-    │                                                                            │
-    │  INIT ──task──▶ coder ──code──▶ 自动验收 ──review_request──▶ reviewer       │
-    │                                        │                        │          │
-    │                                        │                   review │         │
-    │                                        ▼                        ▼          │
-    │                              通过 ─▶ APPROVED         不通过 ─▶ FIXING      │
-    │                                                              │             │
-    │                                                       fix_request          │
-    │                                                              ▼             │
-    │                                                           fixer ──▶ 回审查  │
-    └────────────────────────────────────────────────────────────────────────────┘
+    INIT ──task──▶ coder ──code──▶ REVIEWING  ◀────────────────────────┐
+                                        │                              │
+                                        ▼                              │
+                              ┌─ 循环体（每次 = 1 轮）─────────────────┐ │
+                              │  1. 机器验收（AST + pytest）          │ │
+                              │  2. reviewer 出结论（review_request） │ │
+                              │  3. 分支判断：                        │ │
+                              │     approved 且机器过 ──▶ break 出循环 │ │
+                              │     不通过且还有预算 ───▶ 4. 修复 ────┼─┘
+                              │     不通过且预算耗尽 ───▶ break 熔断   │
+                              └───────────────────────────────────────┘
+                                        │
+                                        ▼
+                              APPROVED / REJECTED
 
 三条不可让步的规则：
 
 1. **机器验收优先于模型判断**：LLM 说通过、测试是红的，按不通过处理。
-2. **轮次上限熔断**：达到 ``max_rounds`` 仍未通过就停下，输出遗留问题，而不是无限烧钱。
-3. **每次决策都留 DEC**：进入修复、强制驳回、熔断、产物落地，全部带编号落盘。
+2. **循环必须有出口**：只有「审查通过 + 机器验收通过」才离开循环；预算耗尽走熔断出口，
+   异常走 FAILED 出口，不存在无限循环。
+3. **每次决策都留 DEC，每次循环都留轨迹**：进入修复、强制驳回、熔断、产物落地全部带编号落盘，
+   每轮的分支结果同时写进 ``state.loop_trace``，报告里渲染成「循环轨迹」表。
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
-from agents.coder import CoderAgent
-from agents.fixer import FixerAgent
-from agents.reviewer import ReviewerAgent
+from agents.registry import build_pipeline
 from core.bus import Message, MessageBus
 from core.dec import DecRecorder
 from core.llm_client import LLMClient, load_config
 from core.state import Phase, StateStore, WorkflowState
 from core.verify import verify_code
 from workflow.report import build_report
-from workflow.task import PROJECT_ROOT, Task
+from workflow.task import PROJECT_ROOT, Task, infer_tests
 
 RUNS_ROOT = PROJECT_ROOT / "runs"
+
+# 循环体的三种分支结果（也是循环的三个出口/去向）
+VERDICT_APPROVED = "approved"   # 审核通过 → 离开循环
+VERDICT_REJECTED = "rejected"   # 预算耗尽 → 熔断离开循环
+VERDICT_RETRY = "retry"         # 未通过且还有预算 → 修复后回到循环开头
 
 
 class WorkflowError(RuntimeError):
@@ -61,6 +71,9 @@ class Orchestrator:
         verbose: bool = True,
         dynamic_verify: bool = True,
         apply_solution: bool = False,
+        llm: Optional[LLMClient] = None,
+        event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
+        parallel_review: Optional[bool] = None,
     ) -> None:
         self.task = task
         self.runs_root = Path(runs_root)
@@ -68,20 +81,30 @@ class Orchestrator:
         self.verbose = verbose
         self.dynamic_verify = dynamic_verify
         self.apply_solution = apply_solution
+        self.event_sink = event_sink
 
         self.config = load_config(config_path, overrides)
         if max_rounds:
             self.config.setdefault("limits", {})["max_rounds"] = max_rounds
         self.max_rounds = int(self.config.get("limits", {}).get("max_rounds", 3))
+        if parallel_review is None:
+            parallel_review = bool(self.config.get("limits", {}).get("parallel_review", False))
+        self.parallel_review = bool(parallel_review)
 
-        self.llm = LLMClient(self.config, verbose=verbose)
+        # 模型客户端可注入：单测里换成脚本化假模型，不必真的调 API
+        self.llm = llm or LLMClient(self.config, verbose=verbose)
         self.store = StateStore(self.runs_root, self.run_id)
         self.bus = MessageBus(self.run_id, self.store.messages_path)
         self.dec = DecRecorder(f"run:{self.run_id}", self.store.root,
                                title=f"运行决策 · {self.run_id}")
-        self.coder = CoderAgent(self.llm, self.bus, verbose=verbose)
-        self.reviewer = ReviewerAgent(self.llm, self.bus, verbose=verbose)
-        self.fixer = FixerAgent(self.llm, self.bus, verbose=verbose)
+        # 流水线由 config["pipeline"] 决定，新增 Agent 不需要改这里（见 agents/registry.py）
+        pipeline = build_pipeline(self.config, self.llm, self.bus,
+                                  verbose=verbose, parallel=self.parallel_review)
+        self.coder = pipeline["coder"]
+        self.reviewer = pipeline["reviewer"]
+        self.extra_reviewers = pipeline["extra_reviewers"]
+        self.security_reviewer = self.extra_reviewers[0] if self.extra_reviewers else None
+        self.fixer = pipeline["fixer"]
 
     # ------------------------------------------------------------------ #
     # 入口
@@ -91,7 +114,26 @@ class Orchestrator:
         return f"{task_id}-{datetime.now():%Y%m%d-%H%M%S}-{datetime.now().microsecond // 1000:03d}"
 
     def run(self, resume: bool = False) -> WorkflowState:
-        """跑完整条流水线。``resume=True`` 时从 state.json 接着跑。"""
+        """跑完整条流水线。``resume=True`` 时从 state.json 接着跑。
+
+        结构上只有三件事：**准备**（新跑 / 续跑）→ **循环体**（直到审核通过）→ **收尾**（出报告）。
+        """
+        state = self._prepare(resume)
+        if state.phase in Phase.TERMINAL:
+            return self._finish(state)
+
+        try:
+            self._loop_until_approved(state)
+        except Exception as exc:  # noqa: BLE001 - 任何异常都要留下终态
+            self._fail(state, exc)
+
+        return self._finish(state)
+
+    # ------------------------------------------------------------------ #
+    # 准备 / 循环体
+    # ------------------------------------------------------------------ #
+    def _prepare(self, resume: bool) -> WorkflowState:
+        """新跑：建状态 → 记首条 DEC → 编码 Agent 出第一版；续跑：直接读盘。"""
         if resume and self.store.exists():
             state = self.store.load()
             self._load_message_history()
@@ -105,41 +147,70 @@ class Orchestrator:
                 consequences="需要保证 Agent 的入参完全来自 state，而不依赖内存里的临时变量。",
                 phase=state.phase, tags=["resume"],
             )
-            if state.phase in Phase.TERMINAL:
-                self._finish(state)
-                return state
-        else:
-            state = WorkflowState(
-                run_id=self.run_id, task_id=self.task.task_id,
-                max_rounds=self.max_rounds,
-                provider=self.llm.provider, model=str(self.config.get("model", "")),
-            )
-            self.store.save(state)
-            self._record_start(state)
-            try:
-                self._phase_coding(state)
-            except Exception as exc:  # noqa: BLE001 - 任何异常都要留下终态
-                self._fail(state, exc)
-                return self._finish(state)
+            # 停在编码阶段：编码未完成，重新派发（否则续跑会直接以 CODING 收尾）
+            if state.phase == Phase.CODING:
+                try:
+                    self._phase_coding(state)
+                except Exception as exc:  # noqa: BLE001
+                    self._fail(state, exc)
+            return state
 
+        state = WorkflowState(
+            run_id=self.run_id, task_id=self.task.task_id,
+            max_rounds=self.max_rounds,
+            provider=self.llm.provider, model=str(self.config.get("model", "")),
+        )
+        self.store.save(state)
+        self._record_start(state)
+        self._emit("session", run_id=self.run_id, task_id=self.task.task_id,
+                   provider=self.llm.provider, model=str(self.config.get("model", "")),
+                   max_rounds=self.max_rounds, class_name=self.task.class_name,
+                   target_file=self.task.target_file, parallel_review=self.parallel_review)
         try:
-            if state.phase == Phase.FIXING:
-                self._phase_fix(state)
-            while state.phase == Phase.REVIEWING:
-                self._phase_review(state)
-                if state.phase == Phase.FIXING:
-                    self._phase_fix(state)
-        except Exception as exc:  # noqa: BLE001
+            self._phase_coding(state)
+        except Exception as exc:  # noqa: BLE001 - 编码阶段失败也要留下终态
             self._fail(state, exc)
+        return state
 
-        return self._finish(state)
+    def _loop_until_approved(self, state: WorkflowState) -> WorkflowState:
+        """核心循环体：审查 → 条件分支 →（不通过）修复 → 回到审查，直到代码审核通过。
+
+        **这就是作业要求的「循环体」**：不使用「编码一次、审查一次」的单次调用，
+        而是把「审查 + 修复」放进 ``while`` 里反复执行，循环条件由审查结论驱动。
+
+        三种出口全部显式：
+        * ``VERDICT_APPROVED``：审查通过且机器验收通过 —— 唯一的正常出口；
+        * ``VERDICT_REJECTED``：预算耗尽 —— 熔断出口，交出遗留问题；
+        * 异常 —— 由 ``run()`` 兜住转 ``FAILED``，本轮状态已落盘，可 ``--resume``。
+        """
+        # 续跑时若停在修复阶段，先把上一轮的修复做完，再进循环
+        if state.phase == Phase.FIXING:
+            self._phase_fix(state)
+
+        while state.phase == Phase.REVIEWING:
+            round_no = state.round + 1
+            self._log(f"循环第 {round_no} 次：审查 → 条件分支")
+
+            verdict = self._phase_review(state)      # 一次审查 + 分支判断
+            self._trace_loop(state, round_no, verdict)
+
+            if verdict != VERDICT_RETRY:
+                break                                # 通过 / 熔断 → 离开循环
+            self._phase_fix(state)                   # 未通过 → 修复 → 回到 while 条件
+
+        return state
+
 
     # ------------------------------------------------------------------ #
     # 阶段
     # ------------------------------------------------------------------ #
     def _phase_coding(self, state: WorkflowState) -> None:
-        state.transition(Phase.CODING, reason="派发任务给编码 Agent")
-        self.store.save(state)
+        # 新跑：INIT → CODING；续跑：阶段已是 CODING（上次在编码中途中断），直接重新派发
+        if state.phase == Phase.INIT:
+            state.transition(Phase.CODING, reason="派发任务给编码 Agent")
+            self.store.save(state)
+        else:
+            self._log("续跑：重新派发编码任务（不重复迁移阶段）")
         self._status(state)
 
         self.bus.publish(
@@ -148,6 +219,7 @@ class Orchestrator:
                 "task_spec": self.task.spec_text,
                 "requirements": self.task.requirements_text,
                 "target_file": self.task.target_file,
+                "class_name": self.task.class_name,
                 "carry_over": "",
             },
             round=0,
@@ -159,46 +231,29 @@ class Orchestrator:
         state.transition(Phase.REVIEWING, reason="首版代码就绪")
         self.store.save(state)
         self._log(f"首版代码 {len(code)} 字符，进入审查")
+        self._emit("code", agent="coder", version=1, chars=len(code),
+                   lines=code.count("\n") + 1, code=code)
 
-    def _phase_review(self, state: WorkflowState) -> None:
+    def _phase_review(self, state: WorkflowState) -> str:
+        """跑一轮审查，并做分支判断。返回 ``VERDICT_*`` 之一，供循环体决定是否继续。"""
         state.round += 1
         self.store.save(state)
 
         # 1) 先跑机器验收，把证据摆到审查 Agent 面前
         state.verification = self._verify(state.code)
         self._log(f"自动验收：{state.verification['summary']}")
+        self._emit("verification", **self._verification_event(state.verification))
 
-        # 2) 请审查 Agent 出结论
+        # 2) 请审查 Agent 出结论（parallel_review 时两个审查 Agent 并行）
         self._status(state)
-        self.bus.publish(
-            "orchestrator", self.reviewer.name, "review_request",
-            {
-                "code": state.code,
-                "requirements": self.task.requirements_text,
-                "verification": state.verification,
-                "previous_issues": state.issues_open,
-                "round": state.round,
-            },
-            round=state.round,
-        )
-        msg = self.reviewer.receive("review_request")
-        if msg is None:
-            raise WorkflowError("审查 Agent 收件箱为空")
-        reply = self.reviewer.handle(msg)
-        if reply is None:
-            raise WorkflowError("审查 Agent 未返回结论")
-
-        review = {
-            "approved": bool(reply.payload.get("approved")),
-            "score": int(reply.payload.get("score", 0) or 0),
-            "issues": reply.payload.get("issues") or [],
-            "summary": reply.payload.get("summary", ""),
-            "round": state.round,
-        }
+        review = self._run_reviewers(state)
         state.review = review
         state.reviews.append(review)
         state.issues_open = list(review["issues"])
         self.store.save(state)
+        self._emit("review", approved=review["approved"], score=review["score"],
+                   summary=review["summary"], issues=review["issues"],
+                   agents=review.get("agents", ["reviewer"]))
 
         machine_ok = bool(state.verification.get("passed"))
         approved = review["approved"] and machine_ok
@@ -234,8 +289,8 @@ class Orchestrator:
             )
             state.transition(Phase.APPROVED, reason="审查通过且机器验收通过")
             self.store.save(state)
-            self._log("✅ 审查通过")
-            return
+            self._log("✅ 审查通过，退出循环")
+            return VERDICT_APPROVED
 
         # 4) 未通过：还能修就修，不能修就熔断
         if state.round >= state.max_rounds:
@@ -251,8 +306,8 @@ class Orchestrator:
             )
             state.transition(Phase.REJECTED, reason="达到轮次上限")
             self.store.save(state)
-            self._log("❌ 未通过（已达轮次上限）")
-            return
+            self._log("❌ 未通过（已达轮次上限），熔断退出循环")
+            return VERDICT_REJECTED
 
         self.dec.record(
             title=f"第 {state.round} 轮审查不通过，转入修复",
@@ -266,7 +321,8 @@ class Orchestrator:
         )
         state.transition(Phase.FIXING, reason="审查不通过")
         self.store.save(state)
-        self._log(f"↩ 审查未通过（{len(state.issues_open)} 条问题），进入修复")
+        self._log(f"↩ 审查未通过（{len(state.issues_open)} 条问题），进入修复，随后回到循环开头")
+        return VERDICT_RETRY
 
     def _phase_fix(self, state: WorkflowState) -> None:
         self.bus.publish(
@@ -285,7 +341,104 @@ class Orchestrator:
         self.store.save_artifact(code, f"v{state.code_version}-fixer")
         state.transition(Phase.REVIEWING, reason="修复完成，回到审查")
         self.store.save(state)
-        self._log(f"修复完成，代码 v{state.code_version}，回到审查")
+        self._log(f"修复完成，代码 v{state.code_version}，回到循环开头（审查）")
+        self._emit("code", agent="fixer", version=state.code_version, chars=len(code),
+                   lines=code.count("\n") + 1, code=code)
+
+    def _trace_loop(self, state: WorkflowState, iteration: int, verdict: str) -> None:
+        """把本轮「审查 → 分支判断」的结果记进循环轨迹，供报告与复盘使用。"""
+        review = state.review or {}
+        machine_ok = bool((state.verification or {}).get("passed"))
+        action = {
+            VERDICT_APPROVED: "放行，退出循环",
+            VERDICT_REJECTED: "熔断，预算耗尽退出循环",
+            VERDICT_RETRY: "派修复，回到循环开头",
+        }.get(verdict, verdict)
+
+        state.loop_trace.append({
+            "iteration": iteration,
+            "round": state.round,
+            "verdict": verdict,
+            "phase": state.phase,
+            "approved": bool(review.get("approved")),
+            "machine_ok": machine_ok,
+            "score": review.get("score", 0),
+            "issues": len(state.issues_open),
+            "action": action,
+            "ts": datetime.now().isoformat(timespec="seconds"),
+        })
+        self.store.save(state)
+        self._log(f"分支：{action}（llm_approved={bool(review.get('approved'))}，"
+                  f"machine_ok={machine_ok}，round={state.round}/{state.max_rounds}）")
+        self._emit("loop", iteration=iteration, round=state.round, verdict=verdict,
+                   action=action, approved=bool(review.get("approved")),
+                   machine_ok=machine_ok, score=review.get("score", 0),
+                   issues=len(state.issues_open))
+
+
+    # ------------------------------------------------------------------ #
+    # 审查（可并行）
+    # ------------------------------------------------------------------ #
+    def _run_reviewers(self, state: WorkflowState) -> Dict[str, Any]:
+        """请审查 Agent 出结论。``parallel_review`` 时两个审查 Agent 并发执行，join 后合并。"""
+        agents = [self.reviewer, *self.extra_reviewers]
+
+        payload = {
+            "code": state.code,
+            "requirements": self.task.requirements_text,
+            "verification": state.verification,
+            "previous_issues": state.issues_open,
+            "round": state.round,
+        }
+        for agent in agents:
+            self.bus.publish("orchestrator", agent.name, "review_request", payload, round=state.round)
+
+        def ask(agent: Any) -> Dict[str, Any]:
+            msg = agent.receive("review_request")
+            if msg is None:
+                raise WorkflowError(f"{agent.name} 收件箱为空")
+            reply = agent.handle(msg)
+            if reply is None:
+                raise WorkflowError(f"{agent.name} 未返回结论")
+            return self._review_from_reply(reply, agent.name)
+
+        if len(agents) == 1:
+            return ask(agents[0])
+
+        # 并行：两个审查 Agent 同时跑，主线程只做 join 与合并
+        with ThreadPoolExecutor(max_workers=len(agents), thread_name_prefix="review") as pool:
+            reviews = list(pool.map(ask, agents))
+        return self._merge_reviews(reviews, [a.name for a in agents])
+
+    @staticmethod
+    def _review_from_reply(reply: Message, agent_name: str) -> Dict[str, Any]:
+        return {
+            "approved": bool(reply.payload.get("approved")),
+            "score": int(reply.payload.get("score", 0) or 0),
+            "issues": reply.payload.get("issues") or [],
+            "summary": reply.payload.get("summary", ""),
+            "agents": [agent_name],
+        }
+
+    @staticmethod
+    def _merge_reviews(reviews: Dict[str, Any] | list, agent_names: list) -> Dict[str, Any]:
+        """并行结论合并：都通过才算通过（取交集），问题取并集，分数取最低。"""
+        issues: list = []
+        seen = set()
+        for r in reviews:
+            for issue in r.get("issues") or []:
+                key = (issue.get("problem") or "").strip()
+                if key and key in seen:
+                    continue
+                seen.add(key)
+                issues.append(issue)
+        return {
+            "approved": all(r["approved"] for r in reviews),
+            "score": min(r["score"] for r in reviews),
+            "issues": issues,
+            "summary": " | ".join(r["summary"] for r in reviews if r.get("summary")),
+            "agents": agent_names,
+        }
 
     # ------------------------------------------------------------------ #
     # 辅助
@@ -300,20 +453,67 @@ class Orchestrator:
         code = (reply.payload.get("code") or "").strip()
         if not code:
             raise WorkflowError(f"{agent.name} 返回的代码为空")
-        if self.task.class_name not in code:
+        if self.task.class_name and self.task.class_name not in code:
             raise WorkflowError(
                 f"{agent.name} 返回的代码里没有 class {self.task.class_name}，疑似输出被截断")
         self._log(f"{author} 交付代码（{len(code)} 字符）")
         return code + "\n"
 
     def _verify(self, code: str) -> Dict[str, Any]:
-        return verify_code(
+        """机器验收。自由输入任务没有测试时，尝试复用已知任务的测试套件。"""
+        test_files = self.task.test_files
+        tests_from = self.task.task_id
+        module_name = self.task.module_name
+        class_name = self.task.class_name
+        if not test_files:
+            inferred = infer_tests(code)
+            if inferred:
+                try:
+                    known = Task.load(inferred)
+                    test_files = known.test_files
+                    tests_from = inferred
+                    # 复用它的模块名/类名：测试里写的是 `from ttl_cache import TTLCache`
+                    module_name = known.module_name
+                    class_name = known.class_name
+                except Exception:  # noqa: BLE001
+                    test_files = {}
+
+        result = verify_code(
             code, self.store,
-            module_name=self.task.module_name,
-            class_name=self.task.class_name,
-            test_files=self.task.test_files or None,
+            module_name=module_name,
+            class_name=class_name,
+            test_files=test_files or None,
             run_tests_too=self.dynamic_verify,
         )
+        result["tests_from"] = tests_from if test_files else None
+        return result
+
+
+    def _emit(self, kind: str, **payload: Any) -> None:
+        """把结构化事件推给订阅方（CLI 的 --events / 聊天面板）。
+
+        订阅方出错（管道断开、JSON 序列化失败）不应影响工作流本身，因此吞掉异常。
+        """
+        if not self.event_sink:
+            return
+        try:
+            self.event_sink({"type": kind, **payload})
+        except Exception:  # noqa: BLE001
+            pass
+
+    @staticmethod
+    def _verification_event(v: Dict[str, Any]) -> Dict[str, Any]:
+        static = v.get("static") or {}
+        dyn = v.get("dynamic") or {}
+        return {
+            "passed": bool(v.get("passed")),
+            "summary": v.get("summary", ""),
+            "checks": [{"name": c["name"], "ok": c["ok"], "detail": c["detail"]}
+                       for c in static.get("checks", [])],
+            "pytest": dyn.get("summary") if dyn.get("ran") else None,
+            "duration": dyn.get("duration") if dyn.get("ran") else None,
+            "tests_from": v.get("tests_from"),
+        }
 
     def _status(self, state: WorkflowState) -> None:
         self.bus.publish(
@@ -417,6 +617,12 @@ class Orchestrator:
         report = build_report(state, self.bus, self.dec, self.task, llm_calls=self.llm.call_log)
         (self.store.root / "REPORT.md").write_text(report, encoding="utf-8")
         self._log(f"报告：{self.store.root / 'REPORT.md'}")
+        self._emit("done", phase=state.phase, round=state.round,
+                   max_rounds=state.max_rounds, code_version=state.code_version,
+                   code_chars=len(state.code),
+                   report=str(self.store.root / "REPORT.md"),
+                   run_dir=str(self.store.root), error=state.error,
+                   loop_trace=state.loop_trace)
         return state
 
     def _log(self, text: str) -> None:

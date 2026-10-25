@@ -6,20 +6,27 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ workflow/        编排层：状态机、轮次预算、验收把关、报告生成    │
+│ launcher/        桌面入口（可选）：GUI / --cli / --pytest      │
+│   app.py  panel.py                                          │
+├──────────────────────────────────────────────────────────────┤
+│ workflow/        编排层：循环体、状态机、轮次预算、验收把关、报告生成 │
 │   orchestrator.py  task.py  report.py  cli.py                │
 ├──────────────────────────────────────────────────────────────┤
 │ agents/          Agent 层：只做「读消息 → 组 Prompt → 回复」     │
-│   base.py  coder.py  reviewer.py  fixer.py                   │
+│   base.py  coder.py  reviewer.py  fixer.py  registry.py      │
 ├──────────────────────────────────────────────────────────────┤
-│ core/            基础设施：模型调用 / 消息总线 / 状态 / DEC / 验收 │
-│   llm_client.py  bus.py  state.py  dec.py  verify.py         │
+│ core/            基础设施：模型 / 消息总线 / 状态 / DEC / 验收    │
+│   llm_client.py  bus.py  state.py  dec.py  verify.py  paths.py │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-依赖方向严格单向：`workflow → agents → core`，`core` 不 import 上层。
+依赖方向严格单向：`launcher → workflow → agents → core`，`core` 不 import 上层。
 所以三个 Agent 可以脱离编排器单独跑（喂一条消息即可），
 `core/verify.py` 也能独立被 CLI 的 `verify` 子命令使用。
+
+`core/paths.app_root()` 是唯一决定「仓库根在哪」的地方：源码运行取上两级目录，
+打包运行按 `WORKFLOW_HOME` → exe 目录/上一级（含 `tasks/`）→ 解包目录依次尝试。
+桌面面板的打包约定见 [DEC-015](decisions/DEC-015-desktop-launcher.md)。
 
 ## 2. 状态机
 
@@ -51,7 +58,32 @@
 `severity` 为 `critical/high` 时，`normalize_review` 会强制把 `approved` 改为 `false`——
 防止模型「列了 5 个严重问题却判定通过」的自相矛盾。
 
-## 4. 一轮审查发生了什么
+## 4. 循环体：直到代码审核通过
+
+整个流程的主结构是 `Orchestrator._loop_until_approved()` 里的一个 `while`：
+
+```
+        ┌──────────────────────────────────────────────────────────┐
+        │  while state.phase == REVIEWING:                         │
+        │      1. verify：AST 静态检查 + 干净工作区跑 pytest        │
+        │      2. publish review_request → reviewer → review 结论   │
+        │      3. 分支判断（_phase_review 返回 verdict）            │
+        │         ├─ approved 且机器通过  → APPROVED    → break    │
+        │         ├─ 不通过且预算耗尽      → REJECTED    → break    │
+        │         └─ 不通过且还有预算      → FIXING → fixer → 回到 ①│
+        └──────────────────────────────────────────────────────────┘
+```
+
+三个出口都是显式的，写在 `_phase_review` 的返回值（`VERDICT_APPROVED` /
+`VERDICT_REJECTED` / `VERDICT_RETRY`）里；循环体只做「继续 or 离开」，
+不判断业务细节。异常由 `run()` 兜住转 `FAILED`，此时状态已落盘，可 `--resume`。
+
+每执行一次「审查 + 分支」，就往 `state.loop_trace` 追加一条记录
+（`iteration / round / approved / machine_ok / score / issues / verdict / action`），
+报告里的「循环轨迹」表直接由它渲染。设计理由见
+[DEC-014](decisions/DEC-014-review-loop.md)。
+
+一轮循环内部的时序：
 
 ```
 1. orchestrator 读 state.code
@@ -61,18 +93,18 @@
 3. publish review_request（带上 verification 证据）
 4. reviewer → chat_json → normalize_review
    └── 若 verification.passed == False 而模型说 approved，强制驳回并追加 R-AUTO
-5. orchestrator 决策
-   ├── approved and machine_ok      → APPROVED
+5. orchestrator 决策（即循环的分支）
+   ├── approved and machine_ok      → APPROVED（离开循环）
    ├── approved and not machine_ok  → 记 DEC「强制驳回」→ FIXING
    ├── not approved and 还有预算     → 记 DEC「定点修复」→ FIXING
-   └── not approved and 预算耗尽     → 记 DEC「熔断」→ REJECTED
+   └── not approved and 预算耗尽     → 记 DEC「熔断」→ REJECTED（离开循环）
 ```
 
 ## 5. 一次运行的目录
 
 ```
 runs/<run_id>/
-├── state.json          唯一真相源（阶段/轮次/代码/审查结论），原子写入
+├── state.json          唯一真相源（阶段/轮次/代码/审查结论/循环轨迹），原子写入
 ├── messages.jsonl      全部消息，按 seq 有序
 ├── decisions.jsonl     运行级 DEC 正文
 ├── DECISIONS.md        运行级 DEC 索引表（自动重建）
@@ -85,13 +117,19 @@ runs/<run_id>/
 
 ## 6. 怎么扩展
 
-**加一个 Agent（例如安全检查 Agent）**
+**加一个 Agent（不改编排器）**
+
+`agents/registry.py` 把「有哪些 Agent」变成数据：`register_agent(name, factory)` 登记，
+`build_pipeline(config, ...)` 按 `config["pipeline"]` 组装。编排器只认
+`pipeline["coder" / "reviewer" / "fixer" / "extra_reviewers"]`，不再 import 具体 Agent 类。
 
 1. 继承 `BaseAgent`，声明 `name` / `handles` / `system_prompt`，实现 `process()`；
-2. 在 `Orchestrator.__init__` 里实例化（自动注册收件箱）；
-3. 编排器在合适阶段 `publish(..., kind="security_request")` 并消费回复；
-4. 若要参与放行判定，在 `_phase_review` 里把它的结论与 `machine_ok` 做与运算；
-5. 加阶段就同步改 `Phase.TRANSITIONS`，否则迁移会被白名单挡住。
+2. 模块导入时 `register_agent("my_reviewer", lambda llm, bus, verbose: MyReviewer(llm, bus, verbose=verbose))`；
+3. 把名字加进 `config/agents.json` 的 `pipeline.reviewers`（第一个是主审查，其余在
+   `--parallel-review` 时并发）。
+
+示例见 `tests/test_extensibility.py`（10 行的自定义审查 Agent，注册后立即参与循环），
+取舍见 DEC-017。若要参与循环分支判断，结论会在 `_run_reviewers` 里被合并，循环体不用改。
 
 **换模型**
 

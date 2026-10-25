@@ -20,13 +20,49 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from core.paths import app_root
+
+PROJECT_ROOT = app_root()
+
+
+def _pytest_command(args: List[str]) -> List[str]:
+    """构造 pytest 子进程命令。
+
+    源码运行时用 ``python -m pytest``；PyInstaller 打包运行时 ``sys.executable``
+    是面板 exe 自己，不能加 ``-m``，改为「exe --pytest …」转发给打包内的 pytest。
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--pytest", *args]
+    return [sys.executable, "-m", "pytest", *args]
 
 
 # --------------------------------------------------------------------------- #
 # 静态检查
 # --------------------------------------------------------------------------- #
 REQUIRED_METHODS = {"get", "put", "__init__"}
+
+
+def _generic_checks(tree: ast.AST, code: str, add) -> None:
+    """自由输入任务（聊天模式）的通用检查：只看「是不是完整的、能用的代码」。"""
+    add("代码非空", len(code.strip()) >= 40, f"{len(code.strip())} 字符")
+    has_def = any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                  for n in ast.walk(tree))
+    add("包含函数或类定义", has_def, "检测到 class/def" if has_def else "没有任何定义")
+
+    placeholders: List[str] = []
+    for node in ast.walk(tree):
+        # 函数体里只有 pass 或 ... 视为占位实现
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and len(node.body) == 1:
+            only = node.body[0]
+            if isinstance(only, ast.Pass):
+                placeholders.append(f"{node.name} 只有 pass")
+            if isinstance(only, ast.Expr) and isinstance(only.value, ast.Constant) \
+                    and only.value.value is Ellipsis:
+                placeholders.append(f"{node.name} 是 ... 占位")
+        if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call) \
+                and isinstance(node.exc.func, ast.Name) and node.exc.func.id == "NotImplementedError":
+            placeholders.append("抛出 NotImplementedError")
+    add("没有占位实现", not placeholders, "；".join(sorted(set(placeholders))) or "未发现 pass/... 占位")
 
 
 def static_check(code: str, class_name: str = "TTLCache") -> Dict[str, Any]:
@@ -49,6 +85,12 @@ def static_check(code: str, class_name: str = "TTLCache") -> Dict[str, Any]:
         }
 
     add("语法解析", True, "ast.parse 通过")
+
+    # 自由输入的任务（聊天模式）没有固定类名：只做通用检查
+    if not class_name:
+        _generic_checks(tree, code, add)
+        passed = all(c["ok"] for c in checks if c["hard"])
+        return {"passed": passed, "checks": checks, "warnings": warnings, "generic": True}
 
     cls = next((n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name), None)
     add(f"类 {class_name} 存在", cls is not None, "顶层定义" if cls else "未找到该类的顶层定义")
@@ -113,7 +155,7 @@ def static_check(code: str, class_name: str = "TTLCache") -> Dict[str, Any]:
 def run_tests(workspace: Path, timeout: int = 180) -> Dict[str, Any]:
     """在 workspace 里跑 pytest，返回结构化结果。"""
     started = time.time()
-    cmd = [sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider", "tests"]
+    cmd = _pytest_command(["-q", "--no-header", "-p", "no:cacheprovider", "tests"])
     try:
         proc = subprocess.run(
             cmd, cwd=str(workspace), capture_output=True, text=True,
