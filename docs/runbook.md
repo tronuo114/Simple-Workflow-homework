@@ -264,7 +264,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
 # 依赖已装好可加 -SkipDeps
 ```
 
-产物：`WorkflowPanel.exe`（约 24 MB）。exe 随仓库提交（评审可直接双击），`build/` 中间目录不入库。
+产物：`WorkflowPanel.exe`（约 23 MB）。exe 随仓库提交（评审可直接双击），`build/` 中间目录不入库。
 
 ### 11.3 同一条命令行的三种模式
 

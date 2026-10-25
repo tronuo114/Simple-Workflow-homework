@@ -36,7 +36,7 @@
 | 打包后怎么跑 pytest | `core/verify._pytest_command()` 检测 `sys.frozen`，改调 `exe --pytest`，退出码原样回传 |
 | 面板怎么跑工作流 | 子进程 + 管道，实时回显；「停止」用 `taskkill /T` 杀进程树 |
 
-产物：`scripts/build_exe.ps1` → `dist/WorkflowPanel.exe`（约 24 MB，含 tasks/tests/mock/config）。
+产物：`scripts/build_exe.ps1` → `dist/WorkflowPanel.exe`（约 23 MB，含 tasks/tests/mock/config）。
 
 ## 理由
 
@@ -50,7 +50,7 @@
 
 ## 代价与后果
 
-- exe 体积约 24 MB；单文件每次启动要解包（首次约 1-2 秒，之后走系统缓存）。
+- exe 体积约 23 MB；单文件每次启动要解包（首次约 1-2 秒，之后走系统缓存）。
 - `--pytest` 子命令为了与原命令行一致，参数按 argv 原样转发，**不再解析 `-m pytest`**，
   所以只能通过 `verify` 调用，不支持手写 `exe --pytest -k xxx`。
 - 打包依赖 PyInstaller，只在构建时需要；运行时依赖仍是 `requests` + 标准库。

@@ -53,7 +53,7 @@
 | 运行时依赖 | `requests>=2.31` | 调 LLM / GitHub 用，见 `requirements.txt` |
 | 测试依赖 | `pytest>=7.4` | 机器验收与自测用 |
 | 打包依赖（可选） | `pyinstaller` | 只在重新生成 exe 时需要 |
-| 磁盘 | 约 100 MB | 依赖 + exe（24 MB）+ 每次运行的 `runs/` |
+| 磁盘 | 约 100 MB | 依赖 + exe（23 MB）+ 每次运行的 `runs/` |
 
 **需要 `AGENT_API_KEY`**（面板已禁用离线模式）。首次使用在面板里 `/bind sk-xxxxxxxx` 绑定，
 `/test` 自检全绿后再输入需求；Key 只写本地 `.env`，不入库、不回显完整值。
@@ -68,7 +68,7 @@
 ```
 
 exe 里已打包 Python、`requests`、`pytest` 以及 `tasks/ tests/ mock/ config/`，目标机器无需装 Python。
-仓库里已带这份产物（`WorkflowPanel.exe`，约 24 MB）；若它缺失或版本落后，见 [1.5 重新打包](#15-重新打包-exe)。
+仓库里已带这份产物（`WorkflowPanel.exe`，约 23 MB）；若它缺失或版本落后，见 [1.5 重新打包](#15-重新打包-exe)。
 
 **方式 B：源码方式（推荐给开发/调试）**
 
@@ -143,12 +143,14 @@ python -m workflow.cli verify --task ttl_cache   # ✅ 通过（25 passed）
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
-# 产物：WorkflowPanel.exe（约 24 MB）
+# 产物：WorkflowPanel.exe（约 23 MB）
 ```
 
 - 打包配置：`launcher.spec`（单文件，含 `tasks/tests/mock/config` 与 pytest）
+- **`.env` 不进包**：`datas` 只列了 `tasks / tests / mock / config / solutions / conftest.py / pytest.ini / requirements.txt`，
+  模型 Key 是运行时从 exe 旁边的 `.env` 读的，构建产物里不含 Key（可用 `strings` 搜 `sk-` 验证）
 - `pyinstaller-hooks/hook-workflow.py`：覆盖社区同名 hook（PyPI 上也有个 `workflow` 包），否则打包报错
-- `WorkflowPanel.exe` 随仓库一起提交（约 24 MB），评审可直接双击；`build/` 是中间目录，不入库
+- `WorkflowPanel.exe` 随仓库一起提交（约 23 MB），评审可直接双击；`build/` 是中间目录，不入库
 
 没有 Python 环境时，可以先在有 Python 的机器上执行上面的命令，再把 `WorkflowPanel.exe` 拷过去。
 
@@ -263,7 +265,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 ├── launcher.spec             PyInstaller 打包配置
 ├── pyinstaller-hooks/        覆盖社区 hook-workflow（与本地同名包冲突）
 ├── assets/workflow.ico       面板图标（scripts/make_icon.py 生成）
-├── WorkflowPanel.exe    ★ 打包产物（随仓库提交，约 24 MB，双击即用）
+├── WorkflowPanel.exe    ★ 打包产物（随仓库提交，约 23 MB，双击即用）
 ├── WorkflowPanel.cmd         双击入口（转发到 WorkflowPanel.exe）
 │
 ├── tasks/ttl_cache/          任务：题面 / 验收项 / 元信息
