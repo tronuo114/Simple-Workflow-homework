@@ -163,7 +163,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
 | 终端输出中文乱码 | 控制台编码不是 UTF-8 | `$env:PYTHONIOENCODING = "utf-8"`；`.ps1` 脚本已是 UTF-8 BOM |
 | 双击 exe 没反应 / 被 SmartScreen 拦 | 未签名的新 exe | 右键属性 → 解除锁定；或用 `WorkflowPanel.cmd` 启动 |
 | 面板启动后立即退出 | 缺文件或被拦截 | 用命令行跑 `WorkflowPanel.exe --cli tasks` 看是否报错 |
-| 面板报「找不到任务」 | exe 被单独拷到了无源码的目录 | 设 `WORKFLOW_HOME` 指向仓库根；或把 exe 放回 `dist\` |
+| 面板报「找不到任务」 | exe 被单独拷到了无源码的目录 | 设 `WORKFLOW_HOME` 指向仓库根；或把 exe 放回仓库根目录 |
 | 打包失败，提示 `hook-workflow.py` | 社区 hook 与本地 `workflow` 包冲突 | 确认 `launcher.spec` 的 `hookspath` 指向 `pyinstaller-hooks/`（已配置） |
 
 更多排错见 [docs/runbook.md](docs/runbook.md) 第 8 节。
