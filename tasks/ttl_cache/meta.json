@@ -1,0 +1,9 @@
+{
+  "task_id": "ttl_cache",
+  "module_name": "ttl_cache",
+  "class_name": "TTLCache",
+  "target_file": "ttl_cache.py",
+  "tests": ["test_ttl_cache.py"],
+  "max_rounds": 3,
+  "_说明": "tests 里的文件名相对于仓库 tests/ 目录；编排器会把它们复制到干净工作区再跑 pytest。"
+}

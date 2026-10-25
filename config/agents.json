@@ -1,0 +1,31 @@
+{
+  "_说明": "全局默认配置。provider 可选 mock（离线脚本化演示）或 openai（任何 OpenAI 兼容接口）。",
+  "provider": "mock",
+  "base_url": "https://api.deepseek.com/v1",
+  "api_key_env": "AGENT_API_KEY",
+  "model": "deepseek-chat",
+  "temperature": 0.2,
+  "max_tokens": 4096,
+  "timeout": 120,
+  "retries": 2,
+  "agents": {
+    "coder": {
+      "temperature": 0.1,
+      "max_tokens": 4096,
+      "_角色": "按任务说明写出第一版可运行代码"
+    },
+    "reviewer": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "_角色": "逐条对照验收项审查代码，输出结构化 JSON 结论"
+    },
+    "fixer": {
+      "temperature": 0.1,
+      "max_tokens": 4096,
+      "_角色": "按审查意见定点修复，返回完整可运行代码"
+    }
+  },
+  "limits": {
+    "max_rounds": 3
+  }
+}

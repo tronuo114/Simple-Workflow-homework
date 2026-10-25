@@ -1,0 +1,17 @@
+{
+  "_说明": "示例：接真实模型时，复制成 config/agents.local.json 并把 provider 改成 openai。",
+  "provider": "openai",
+  "base_url": "https://api.deepseek.com/v1",
+  "api_key_env": "AGENT_API_KEY",
+  "model": "deepseek-chat",
+  "temperature": 0.2,
+  "max_tokens": 4096,
+  "timeout": 120,
+  "retries": 2,
+  "agents": {
+    "coder": { "model": "deepseek-chat", "temperature": 0.1 },
+    "reviewer": { "model": "deepseek-chat", "temperature": 0.0 },
+    "fixer": { "model": "deepseek-chat", "temperature": 0.1 }
+  },
+  "limits": { "max_rounds": 3 }
+}

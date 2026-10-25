@@ -1,0 +1,15 @@
+{
+  "approved": true,
+  "score": 97,
+  "issues": [
+    {
+      "id": "R7",
+      "severity": "low",
+      "requirement": "",
+      "location": "TTLCache.items",
+      "problem": "items() 是 O(n) 快照，若被误用于热路径会拖慢",
+      "suggestion": "文档已标注仅供排障，无需修改"
+    }
+  ],
+  "summary": "六条验收项全部满足：OrderedDict 维护 LRU、到期队列支持惰性删除与批量清理、覆盖刷新 TTL、RLock 保护临界区、get/put 均摊 O(1)，自动验收全绿。"
+}

@@ -1,0 +1,29 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 运行产物 ----
+runs/
+logs/
+*.log
+
+# ---- 密钥（绝不上传） ----
+.env
+.env.*
+!.env.example
+config/agents.local.json
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 虚拟环境 ----
+.venv/
+venv/

@@ -1,0 +1,5 @@
+# 运行时依赖：只用 requests 调 LLM / GitHub，标准库搞定编排、状态、消息总线
+requests>=2.31
+
+# 测试依赖
+pytest>=7.4

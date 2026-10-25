@@ -1,0 +1,27 @@
+# 一次完整运行的真实产出（离线 mock provider）
+
+这里放的是 `python -m workflow.cli run --task ttl_cache --mock --apply` 的原始产物，
+已去掉 `workspace/` 与 `__pycache__/`（每次运行会用干净工作区重建）。
+
+原始 `run_id`：`ttl_cache-20261025-111255-524`
+
+| 文件 | 说明 |
+| --- | --- |
+| `REPORT.md` | 一页式报告：验收结果、审查记录、DEC 表、通信流水、模型调用、最终代码 |
+| `DECISIONS.md` | 本次运行的 DEC 索引（DEC-001…005） |
+| `decisions.jsonl` | 本次运行 5 条决策的完整正文（背景/可选项/理由/代价） |
+| `artifacts/v1-coder.py` | 编码 Agent 的第一版：故意留坑（无锁、过期不删、覆盖不刷新 TTL、`min()` 扫全表） |
+| `artifacts/v2-fixer.py` | 修复 Agent 的第二版：6 条问题全部修掉，通过审查 |
+
+## 怎么读这份记录
+
+1. 先看 `REPORT.md` 的「结果 → 验收结果 → 审查记录」：第 1 轮 42 分驳回、第 2 轮 97 分通过。
+2. 再对比 `v1-coder.py` 与 `v2-fixer.py`：能看出修复 Agent 只做了定点改动
+   （`OrderedDict` 替代 `min()` 扫描、加锁、补齐惰性删除与覆盖刷新、新增到期队列）。
+3. 最后看 `decisions.jsonl`：每条决策都带「为什么不是别的」。
+
+## 注意
+
+- mock 场景是**脚本化固定输出**，结论每次都一样，用于演示编排与验收逻辑；
+  它不能证明模型能力，真实链路请用 `--live`。
+- 目录内的文件由编排器生成，不要手工修改；重跑会得到新的 `run_id` 与新一批文件。

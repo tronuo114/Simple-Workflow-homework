@@ -1,0 +1,55 @@
+{
+  "approved": false,
+  "score": 42,
+  "issues": [
+    {
+      "id": "R1",
+      "severity": "critical",
+      "requirement": "REQ-5",
+      "location": "TTLCache.get / TTLCache.put",
+      "problem": "完全没有加锁，多线程并发 put 会同时改写 _store 与 _last_used，容量可能越界",
+      "suggestion": "引入 threading.RLock，把读改写包进 with self._lock 临界区；统计计数也在锁内更新"
+    },
+    {
+      "id": "R2",
+      "severity": "high",
+      "requirement": "REQ-2",
+      "location": "TTLCache.get",
+      "problem": "判断过期后只 return None，没有从 _store 删除，过期条目永久占容量",
+      "suggestion": "命中过期分支时执行 del self._store[key] 与 del self._last_used[key]"
+    },
+    {
+      "id": "R3",
+      "severity": "high",
+      "requirement": "REQ-3",
+      "location": "TTLCache.put 覆盖分支",
+      "problem": "覆盖已存在 key 时沿用旧的 expire_at，TTL 没有刷新，写二次反而更早失效",
+      "suggestion": "覆盖分支重新计算 expire_at = now + self.ttl"
+    },
+    {
+      "id": "R4",
+      "severity": "high",
+      "requirement": "REQ-4",
+      "location": "TTLCache.put 容量分支",
+      "problem": "容量满时直接淘汰 LRU，没有先清理已过期条目；全部过期时会白白淘汰有效条目",
+      "suggestion": "淘汰前先批量清理过期条目，仍超容量再淘汰 LRU"
+    },
+    {
+      "id": "R5",
+      "severity": "high",
+      "requirement": "REQ-6",
+      "location": "TTLCache.put 中的 min(...)",
+      "problem": "用 min 全表扫描找最久未使用，单次 O(n)，容量越大越慢，违反均摊 O(1)",
+      "suggestion": "改用 OrderedDict 维护使用顺序，move_to_end + popitem(last=False) 均为 O(1)"
+    },
+    {
+      "id": "R6",
+      "severity": "medium",
+      "requirement": "附加检查",
+      "location": "TTLCache.__init__",
+      "problem": "未校验 capacity / ttl_seconds 的取值，非法参数会静默产生不可用缓存",
+      "suggestion": "capacity <= 0 或 ttl <= 0 时抛 ValueError，类型不对抛 TypeError"
+    }
+  ],
+  "summary": "方向对但硬伤多：无锁、缺失惰性删除、覆盖不刷新 TTL、容量满不先清过期，且用 min 扫描破坏了 O(1)。"
+}
