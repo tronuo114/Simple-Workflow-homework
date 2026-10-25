@@ -8,14 +8,14 @@
 入口有两个，同一套代码：**双击 `WorkflowPanel.exe` 打开聊天面板**（输入需求 → 看它跑到通过），
 或命令行 `python -m workflow.cli`。
 
-[![tests](https://img.shields.io/badge/tests-59%20passed-brightgreen)](tests/)
-[![workflow](https://img.shields.io/badge/workflow-loop%20until%20APPROVED-blue)](#52-循环体直到代码审核通过)
+[![tests](https://img.shields.io/badge/tests-64%20passed-brightgreen)](tests/)
+[![workflow](https://img.shields.io/badge/workflow-loop%20until%20APPROVED-blue)](#42-循环体直到代码审核通过)
 [![panel](https://img.shields.io/badge/panel-chat%20UI-9cf)](#13-第一次运行30-秒)
-[![decisions](https://img.shields.io/badge/decisions-16%20project%20%2B%20per--run-orange)](DECISIONS.md)
+[![decisions](https://img.shields.io/badge/decisions-19%20project%20%2B%20per--run-orange)](DECISIONS.md)
 
 ![聊天面板](docs/assets/chat.png)
 
-> 交付物：**README.md**（本文件：环境搭建、使用方法、需求对照）、**[Design.md](Design.md)**（设计文档）、
+> 交付物：**README.md**（本文件：环境搭建、使用方法、技术方案）、**[Design.md](Design.md)**（设计文档）、
 > **[DECISIONS.md](DECISIONS.md)**（决策记录）、`solutions/` + `tests/`（验收题实现与用例）、
 > `WorkflowPanel.exe`（聊天式桌面入口）。
 
@@ -31,14 +31,13 @@
   - [1.5 重新打包 exe](#15-重新打包-exe)
   - [1.6 环境问题排查](#16-环境问题排查)
   - [1.7 一键脚本](#17-一键脚本)
-- [二、作业要求对照](#二作业要求对照)
-- [三、项目结构](#三项目结构)
-- [四、使用说明](#四使用说明)
-- [五、技术方案](#五技术方案)
-  - [5.2 循环体：直到代码审核通过](#52-循环体直到代码审核通过)
-- [六、最终验收：带过期时间的 LRU 缓存](#六最终验收带过期时间的-lru-缓存)
-- [七、决策记录（DEC）](#七决策记录dec)
-- [八、已知限制](#八已知限制)
+- [二、项目结构](#二项目结构)
+- [三、使用说明](#三使用说明)
+- [四、技术方案](#四技术方案)
+  - [4.2 循环体：直到代码审核通过](#42-循环体直到代码审核通过)
+- [五、最终验收：带过期时间的 LRU 缓存](#五最终验收带过期时间的-lru-缓存)
+- [六、决策记录（DEC）](#六决策记录dec)
+- [七、已知限制](#七已知限制)
 
 ---
 
@@ -126,7 +125,7 @@ python -m workflow.cli run --task ttl_cache --mock
 ```
 
 一次运行产出在 `runs/<run_id>/`：`state.json`（含 `loop_trace`）、`messages.jsonl`、
-`decisions.jsonl`、`REPORT.md`、`artifacts/`。报告怎么读见 [4.3](#43-产物与报告)。
+`decisions.jsonl`、`REPORT.md`、`artifacts/`。报告怎么读见 [4.3](#33-产物与报告)。
 
 ### 1.4 验证环境
 
@@ -183,56 +182,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 
 ---
 
-## 二、作业要求对照
-
-### 2.1 必须实现
-
-| 要求（原文） | 实现 | 可指认的证据 |
-| --- | --- | --- |
-| 至少 2 个 Agent 协作完成一个完整流程 | 3 个 Agent：编码 / 审查 / 修复，外加机器验收 | `agents/coder.py`、`agents/reviewer.py`、`agents/fixer.py`、`core/verify.py` |
-| 实现 Agent 间的消息传递或状态共享 | 收件箱式消息总线（6 种消息）+ 单一状态源 | `core/bus.py`、`core/state.py`、`runs/<id>/messages.jsonl` |
-| 支持基本的流程控制（顺序执行） | 编排器单线程顺序调度：编码 → 循环（审查 → 修复） | `workflow/orchestrator.py` 的 `_loop_until_approved()` |
-| MVP 可运行即可，不需要复杂调度 | 一条命令 / 双击即可跑通，无需 API Key | [1.3 第一次运行](#13-第一次运行30-秒) |
-
-### 2.2 推荐实现
-
-| 推荐项 | 是否实现 | 实现方式 |
-| --- | --- | --- |
-| 条件分支 | ✅ | 审查结论 + 机器验收 → 三路分支：`approved` / `retry` / `rejected` |
-| 循环 | ✅ | 显式 `while` 循环体，直到审核通过或预算耗尽（[5.2](#52-循环体直到代码审核通过)） |
-| 并行执行 | ✅ | `--parallel-review`：主审查 + 安全审查两个 Agent 并发执行，join 后取交集放行（[DEC-016](docs/decisions/DEC-016-chat-entry.md)） |
-| 可视化 Workflow 编排界面（可选） | ✅ | 聊天式桌面面板：输入需求 → 逐条渲染「编码 / 机器验收 / 审查 / 分支 / 修复」直到通过 |
-| 执行日志与状态追踪 | ✅ | `messages.jsonl` / `decisions.jsonl` / `state.json`（含 `loop_trace`）/ `REPORT.md` |
-| 错误处理与恢复机制 | ✅ | 异常 → `FAILED` 并原子落盘、`--resume` 断点续跑、LLM 调用重试、轮次预算熔断 |
-
-### 2.3 交付物清单
-
-| 提交物 | 位置 | 说明 |
-| --- | --- | --- |
-| 源码 | `core/ agents/ workflow/ launcher/` | 编排、Agent、基础设施、桌面入口 |
-| 可执行入口 | `WorkflowPanel.exe`、`WorkflowPanel.cmd` | 双击打开面板（[DEC-015](docs/decisions/DEC-015-desktop-launcher.md)） |
-| 验收题实现 | `solutions/ttl_cache.py` | 带过期时间的 LRU 缓存（约 300 行） |
-| 测试 | `tests/`（64 个用例） | 25 缓存 + 5 循环体 + 21 面板 + 3 聊天 + 3 并行 + 3 扩展 + 4 验收契约 |
-| 项目说明 / 使用 | `README.md` | 本文件 |
-| 设计文档 | [Design.md](Design.md) | 分层、循环体、状态机、错误恢复、测试策略 |
-| 决策记录 | [DECISIONS.md](DECISIONS.md) + `docs/decisions/` | 19 条项目级 + 每次运行自动生成 |
-
-### 2.4 评分维度对照
-
-| 维度 | 权重 | 评分要点 | 本项目的交付与证据 |
-| --- | --- | --- | --- |
-| 流程完整性 | 40% | Workflow 是否跑通、端到端流程是否完整 | 双击 exe 或一条命令跑通「需求 → 编码 → 验收 → 审查 → 修复 → 再审 → 通过」；每次运行产出 `state.json / messages.jsonl / decisions.jsonl / REPORT.md`；样例见 [examples/sample-run/REPORT.md](examples/sample-run/REPORT.md) |
-| Agent 协作 | 30% | Agent 间通信是否顺畅、状态管理是否合理 | 收件箱消息总线（6 种消息、全量落 JSONL）+ 单一状态源（原子落盘、迁移白名单、`loop_trace`）；并行审查时两个 Agent 并发、结论取交集 |
-| 可扩展性 | 20% | 架构是否支持新增 Agent、修改流程 | `agents/registry.py` 注册表 + `config["pipeline"]` 配置驱动：**新增 Agent = 写一个类 + 注册 1 行 + 配置 1 行**，编排器不改；`tests/test_extensibility.py` 用一个 10 行的自定义审查 Agent 证明 |
-| 文档 | 10% | 流程图、架构说明、使用文档 | 本 README（环境/使用/需求对照/评分对照）、[Design.md](Design.md)（含 Mermaid 流程图、时序图、状态图）、[docs/architecture.md](docs/architecture.md)、[docs/runbook.md](docs/runbook.md)、19 条 DEC |
-
----
-
-## 三、项目结构
+## 二、项目结构
 
 ```
 .
-├── README.md                 ← 你正在看（环境搭建 + 使用方法 + 需求对照）
+├── README.md                 ← 你正在看（环境搭建 + 使用方法 + 技术方案）
 ├── Design.md                 设计文档（分层 / 循环体 / 状态机 / 错误恢复）
 ├── DECISIONS.md              项目级决策索引（19 条）
 ├── requirements.txt / .gitignore / .env.example / conftest.py / pytest.ini
@@ -295,9 +249,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 
 ---
 
-## 四、使用说明
+## 三、使用说明
 
-### 4.1 命令与参数
+### 3.1 命令与参数
 
 ```powershell
 # 聊天式：一句话需求，不需要先建 tasks/ 目录（可与 --mock / --live 组合）
@@ -325,7 +279,7 @@ python -m workflow.cli run --task ttl_cache --resume --run-id <id>
 | `--config` / `--model` / `--base-url` | 覆盖配置 |
 | `--quiet` | 少打印 |
 
-### 4.2 聊天面板操作
+### 3.2 聊天面板操作
 
 | 控件 | 作用 |
 | --- | --- |
@@ -366,7 +320,7 @@ python -m workflow.cli run --task ttl_cache --resume --run-id <id>
 面板把每条事件翻译成对话，所以能直接看到「初版代码 → 机器验收 → 审查意见 → 分支 → 修复 → 再审 →
 通过」的完整链路；代码只显示前 14 行，完整体在 `runs/<run_id>/artifacts/`。
 
-### 4.3 产物与报告
+### 3.3 产物与报告
 
 每次运行写在 `runs/<run_id>/`：
 
@@ -385,7 +339,7 @@ runs/<run_id>/
 「循环轨迹」回答「第几次、LLM 怎么判、机器怎么判、走了哪个分支」。
 样例：[examples/sample-run/REPORT.md](examples/sample-run/REPORT.md)。
 
-### 4.4 mock 与 live 的区别（别误读）
+### 3.4 mock 与 live 的区别（别误读）
 
 | | mock | live |
 | --- | --- | --- |
@@ -398,9 +352,9 @@ mock 是「编排逻辑的单元测试」，不能作为「模型能写出好代
 
 ---
 
-## 五、技术方案
+## 四、技术方案
 
-### 5.1 总体架构
+### 4.1 总体架构
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
@@ -424,7 +378,7 @@ mock 是「编排逻辑的单元测试」，不能作为「模型能写出好代
 依赖方向单向：`launcher → workflow → agents → core`，`core` 不 import 上层。
 所以 Agent 可以脱离编排器单独喂消息测试。
 
-### 5.2 循环体：直到代码审核通过
+### 4.2 循环体：直到代码审核通过
 
 **核心结构**：不再把「编码 → 审查 → 修复」写成一次性的直线调用，而是收进一个 `while`。
 整个流程的主结构就是 `workflow/orchestrator.py` 的 `_loop_until_approved()`：
@@ -463,7 +417,7 @@ issues / verdict / action`），报告里的「循环轨迹」表由它渲染：
 
 取舍与代价见 [DEC-014](docs/decisions/DEC-014-review-loop.md)。
 
-### 5.3 状态机
+### 4.3 状态机
 
 > 循环体负责「要不要再来一轮」，状态机负责「这次迁移合不合法」。
 
@@ -477,7 +431,7 @@ INIT ──▶ CODING ──▶ REVIEWING ──┬─▶ APPROVED        （审
 迁移走白名单（`Phase.TRANSITIONS`），`REVIEWING → CODING` 这类跳转直接抛
 `IllegalTransition`。设计理由见 [DEC-004](docs/decisions/DEC-004-state.md)。
 
-### 5.4 消息协议
+### 4.4 消息协议
 
 | kind | 方向 | 关键载荷 |
 | --- | --- | --- |
@@ -491,7 +445,7 @@ INIT ──▶ CODING ──▶ REVIEWING ──┬─▶ APPROVED        （审
 所有消息按序写入 `runs/<run_id>/messages.jsonl`，报告里渲染成「通信流水」表
 （[DEC-003](docs/decisions/DEC-003-message-bus.md)）。
 
-### 5.5 双层验收
+### 4.5 双层验收
 
 ```
 state.code
@@ -520,7 +474,7 @@ pytest 源码，外加从测试里自动抽出的接口清单：
 修复 Agent 还会拿到上一轮 pytest 报错的**开头与结尾**（第一个失败用例的完整 traceback +
 失败清单）：只给它「构造函数 TypeError」这种转述，它只能照着措辞猜，改不动真正的签名。
 
-### 5.6 三个 Agent
+### 4.6 三个 Agent
 
 | Agent | 文件 | 职责 | 输入 | 输出 | 温度 |
 | --- | --- | --- | --- | --- | --- |
@@ -536,7 +490,7 @@ pytest 源码，外加从测试里自动抽出的接口清单：
   "agents": { "reviewer": { "temperature": 0.0 }, "coder": { "temperature": 0.1 } } }
 ```
 
-### 5.7 固定工具：GitHub 上传（可选）
+### 4.7 固定工具：GitHub 上传（可选）
 
 `git` 不在 PATH 的机器上，用独立目录的 `ghpush.py` 上传（REST API，一次一个原子 commit）：
 
@@ -548,7 +502,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun
 工具位置由 `GH_PUSH_HOME` 指定、不写死（[DEC-010](docs/decisions/DEC-010-github-tool.md)、
 [DEC-013](docs/decisions/DEC-013-portability.md)）。
 
-### 5.8 聊天入口、事件流与并行审查
+### 4.8 聊天入口、事件流与并行审查
 
 **聊天输入 = 一次性任务**。面板把输入写进 `runs/_prompts/<id>/task.md` 后调用
 `run --prompt-file … --events`。
@@ -575,7 +529,7 @@ class TTLCache」），`Task.from_prompt` 会**在编码之前**就沿用 `tasks
 放进线程池并发执行，join 后合并 —— 都通过才放行、问题取并集、分数取最低。
 默认关闭以免每轮多花一次模型调用（[DEC-016](docs/decisions/DEC-016-chat-entry.md)）。
 
-### 5.9 流程图
+### 4.9 流程图
 
 **主流程（循环体）**
 
@@ -643,9 +597,9 @@ stateDiagram-v2
 
 ---
 
-## 六、最终验收：带过期时间的 LRU 缓存
+## 五、最终验收：带过期时间的 LRU 缓存
 
-### 6.1 交付物
+### 5.1 交付物
 
 - 实现：[`solutions/ttl_cache.py`](solutions/ttl_cache.py)（约 300 行，含设计注释）
 - 测试：[`tests/test_ttl_cache.py`](tests/test_ttl_cache.py)（25 个用例，0.17s 跑完）
@@ -653,7 +607,7 @@ stateDiagram-v2
 - 由工作流自己跑一遍：面板输入「写一个带过期时间的 LRU 缓存，线程安全」→
   第 1 轮验收失败 → 修复 → 第 2 轮 `25 passed` → APPROVED（报告见 `runs/<run_id>/REPORT.md`）
 
-### 6.2 六条要求怎么满足
+### 5.2 六条要求怎么满足
 
 | 要求 | 实现 | 对应测试 |
 | --- | --- | --- |
@@ -664,7 +618,7 @@ stateDiagram-v2
 | **REQ-5** 线程安全 | `threading.RLock` + `with` 临界区，统计计数也在锁内 | `test_concurrent_read_write_does_not_break_invariants`、`test_concurrent_put_never_exceeds_capacity` |
 | **REQ-6** get/put 均摊 O(1) | 哈希定位 O(1) + 到期双端队列 O(1) 弹出；无排序、无全表扫描 | `test_put_many_with_small_capacity_is_fast`、`test_expiry_queue_stays_bounded` |
 
-### 6.3 为什么这么设计（DEC-007 / DEC-008）
+### 5.3 为什么这么设计（DEC-007 / DEC-008）
 
 难点在「怎么 O(1) 找到过期条目」：
 
@@ -678,7 +632,7 @@ stateDiagram-v2
 不需要堆。条目带 `version`，覆盖刷新或淘汰后旧队列记录自动失效；队列长度超过
 `2*capacity+32` 时压缩一次，摊销后仍是均摊 O(1)。
 
-### 6.4 测试为什么不 flaky
+### 5.4 测试为什么不 flaky
 
 不用 `sleep` 做语义测试，而是**注入假时钟**（`clock` 参数 + `FakeClock`），TTL 用例全部
 「推进时间」而非「等待时间」。复杂度用两条稳定断言：容量 8 vs 20000 的耗时比值（宽松 8 倍
@@ -686,7 +640,7 @@ stateDiagram-v2
 
 ---
 
-## 七、决策记录（DEC）
+## 六、决策记录（DEC）
 
 每次决策都留编号。分两层：**项目级 19 条**（正文在 `docs/decisions/`）+ **运行级**
 （每次运行自动编号，写入 `runs/<id>/decisions.jsonl`，汇总进 `REPORT.md`）。
@@ -717,7 +671,7 @@ stateDiagram-v2
 
 ---
 
-## 八、已知限制
+## 七、已知限制
 
 1. **mock 不是模型能力证明**：它只证明编排正确，真实效果请 `--live`。
 2. **测试决定上限**：机器验收只覆盖已写的 25 个缓存用例、5 个循环体用例、21 个面板用例、
