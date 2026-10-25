@@ -402,6 +402,7 @@ C:\Users\47431\.dsh\tools\github-push\
 ├── tests/test_ttl_cache.py   ★ 25 个验收用例
 ├── mock/                     离线场景数据（含故意留坑的初稿）
 ├── docs/
+│   ├── runbook.md            本地运行手册（命令/产物/排错/退出码）
 │   ├── architecture.md       架构说明（分层/状态机/扩展指南）
 │   └── decisions/DEC-*.md    12 条项目级决策正文
 ├── examples/sample-run/      一次完整运行的真实产出
@@ -422,6 +423,7 @@ C:\Users\47431\.dsh\tools\github-push\
 
 ## 附：相关链接
 
+- **本地运行手册（命令/产物/排错）**：[docs/runbook.md](docs/runbook.md)
 - 项目决策索引：[DECISIONS.md](DECISIONS.md)
 - 架构说明：[docs/architecture.md](docs/architecture.md)
 - 样例运行报告：[examples/sample-run/REPORT.md](examples/sample-run/REPORT.md)
