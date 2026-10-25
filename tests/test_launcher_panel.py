@@ -273,3 +273,16 @@ def test_missing_api_key_error_shows_actionable_hint(panel) -> None:
     assert "/mode mock" in text
 
 
+
+def test_version_banner_commands_match_help() -> None:
+    """`--version` 的指令清单必须与 `/help` 一致。
+
+    曾经硬编码成旧列表（漏了 /bind /unbind /test），`--selftest` 却是绿的，
+    于是「打开的是新 exe」这个判断本身失真。
+    """
+    assert "/bind" in panel_mod.COMMANDS_TEXT
+    assert "/unbind" in panel_mod.COMMANDS_TEXT
+    assert "/test" in panel_mod.COMMANDS_TEXT
+    for cmd in panel_mod.COMMANDS_TEXT.split():
+        assert cmd in panel_mod.HELP_TEXT
+        assert cmd.startswith("/")

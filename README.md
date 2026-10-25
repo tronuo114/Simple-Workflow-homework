@@ -53,7 +53,7 @@
 | 运行时依赖 | `requests>=2.31` | 调 LLM / GitHub 用，见 `requirements.txt` |
 | 测试依赖 | `pytest>=7.4` | 机器验收与自测用 |
 | 打包依赖（可选） | `pyinstaller` | 只在重新生成 exe 时需要 |
-| 磁盘 | 约 100 MB | 依赖 + exe（18 MB）+ 每次运行的 `runs/` |
+| 磁盘 | 约 100 MB | 依赖 + exe（24 MB）+ 每次运行的 `runs/` |
 
 **需要 `AGENT_API_KEY`**（面板已禁用离线模式）。首次使用在面板里 `/bind sk-xxxxxxxx` 绑定，
 `/test` 自检全绿后再输入需求；Key 只写本地 `.env`，不入库、不回显完整值。
@@ -68,7 +68,7 @@
 ```
 
 exe 里已打包 Python、`requests`、`pytest` 以及 `tasks/ tests/ mock/ config/`，目标机器无需装 Python。
-仓库里已带这份产物（`WorkflowPanel.exe`，约 18 MB）；若它缺失或版本落后，见 [1.5 重新打包](#15-重新打包-exe)。
+仓库里已带这份产物（`WorkflowPanel.exe`，约 24 MB）；若它缺失或版本落后，见 [1.5 重新打包](#15-重新打包-exe)。
 
 **方式 B：源码方式（推荐给开发/调试）**
 
@@ -131,7 +131,7 @@ python -m workflow.cli run --task ttl_cache --mock
 ### 1.4 验证环境
 
 ```powershell
-python -m pytest -q                              # 59 passed（25 缓存 + 5 循环 + 20 面板 + 3 聊天 + 3 并行 + 3 扩展）
+python -m pytest -q                              # 64 passed（25 缓存 + 5 循环 + 21 面板 + 3 聊天 + 3 并行 + 3 扩展 + 4 契约）
 python -m workflow.cli verify --task ttl_cache   # ✅ 通过（25 passed）
 ```
 
@@ -143,12 +143,12 @@ python -m workflow.cli verify --task ttl_cache   # ✅ 通过（25 passed）
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
-# 产物：WorkflowPanel.exe（约 18 MB）
+# 产物：WorkflowPanel.exe（约 24 MB）
 ```
 
 - 打包配置：`launcher.spec`（单文件，含 `tasks/tests/mock/config` 与 pytest）
 - `pyinstaller-hooks/hook-workflow.py`：覆盖社区同名 hook（PyPI 上也有个 `workflow` 包），否则打包报错
-- `WorkflowPanel.exe` 随仓库一起提交（约 18 MB），评审可直接双击；`build/` 是中间目录，不入库
+- `WorkflowPanel.exe` 随仓库一起提交（约 24 MB），评审可直接双击；`build/` 是中间目录，不入库
 
 没有 Python 环境时，可以先在有 Python 的机器上执行上面的命令，再把 `WorkflowPanel.exe` 拷过去。
 
@@ -210,10 +210,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 | 源码 | `core/ agents/ workflow/ launcher/` | 编排、Agent、基础设施、桌面入口 |
 | 可执行入口 | `WorkflowPanel.exe`、`WorkflowPanel.cmd` | 双击打开面板（[DEC-015](docs/decisions/DEC-015-desktop-launcher.md)） |
 | 验收题实现 | `solutions/ttl_cache.py` | 带过期时间的 LRU 缓存（约 300 行） |
-| 测试 | `tests/`（59 个用例） | 25 缓存 + 5 循环体 + 20 面板 + 3 聊天 + 3 并行 + 3 扩展 |
+| 测试 | `tests/`（64 个用例） | 25 缓存 + 5 循环体 + 21 面板 + 3 聊天 + 3 并行 + 3 扩展 + 4 验收契约 |
 | 项目说明 / 使用 | `README.md` | 本文件 |
 | 设计文档 | [Design.md](Design.md) | 分层、循环体、状态机、错误恢复、测试策略 |
-| 决策记录 | [DECISIONS.md](DECISIONS.md) + `docs/decisions/` | 18 条项目级 + 每次运行自动生成 |
+| 决策记录 | [DECISIONS.md](DECISIONS.md) + `docs/decisions/` | 19 条项目级 + 每次运行自动生成 |
 
 ### 2.4 评分维度对照
 
@@ -222,7 +222,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 | 流程完整性 | 40% | Workflow 是否跑通、端到端流程是否完整 | 双击 exe 或一条命令跑通「需求 → 编码 → 验收 → 审查 → 修复 → 再审 → 通过」；每次运行产出 `state.json / messages.jsonl / decisions.jsonl / REPORT.md`；样例见 [examples/sample-run/REPORT.md](examples/sample-run/REPORT.md) |
 | Agent 协作 | 30% | Agent 间通信是否顺畅、状态管理是否合理 | 收件箱消息总线（6 种消息、全量落 JSONL）+ 单一状态源（原子落盘、迁移白名单、`loop_trace`）；并行审查时两个 Agent 并发、结论取交集 |
 | 可扩展性 | 20% | 架构是否支持新增 Agent、修改流程 | `agents/registry.py` 注册表 + `config["pipeline"]` 配置驱动：**新增 Agent = 写一个类 + 注册 1 行 + 配置 1 行**，编排器不改；`tests/test_extensibility.py` 用一个 10 行的自定义审查 Agent 证明 |
-| 文档 | 10% | 流程图、架构说明、使用文档 | 本 README（环境/使用/需求对照/评分对照）、[Design.md](Design.md)（含 Mermaid 流程图、时序图、状态图）、[docs/architecture.md](docs/architecture.md)、[docs/runbook.md](docs/runbook.md)、17 条 DEC |
+| 文档 | 10% | 流程图、架构说明、使用文档 | 本 README（环境/使用/需求对照/评分对照）、[Design.md](Design.md)（含 Mermaid 流程图、时序图、状态图）、[docs/architecture.md](docs/architecture.md)、[docs/runbook.md](docs/runbook.md)、19 条 DEC |
 
 ---
 
@@ -232,7 +232,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 .
 ├── README.md                 ← 你正在看（环境搭建 + 使用方法 + 需求对照）
 ├── Design.md                 设计文档（分层 / 循环体 / 状态机 / 错误恢复）
-├── DECISIONS.md              项目级决策索引（18 条）
+├── DECISIONS.md              项目级决策索引（19 条）
 ├── requirements.txt / .gitignore / .env.example / conftest.py / pytest.ini
 │
 ├── core/                     基础设施
@@ -263,7 +263,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 ├── launcher.spec             PyInstaller 打包配置
 ├── pyinstaller-hooks/        覆盖社区 hook-workflow（与本地同名包冲突）
 ├── assets/workflow.ico       面板图标（scripts/make_icon.py 生成）
-├── WorkflowPanel.exe    ★ 打包产物（随仓库提交，约 18 MB，双击即用）
+├── WorkflowPanel.exe    ★ 打包产物（随仓库提交，约 24 MB，双击即用）
 ├── WorkflowPanel.cmd         双击入口（转发到 WorkflowPanel.exe）
 │
 ├── tasks/ttl_cache/          任务：题面 / 验收项 / 元信息
@@ -280,7 +280,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun  
 │   ├── architecture.md       架构说明（分层 / 循环 / 状态机 / 扩展）
 │   ├── assets/chat.png       聊天面板截图
 │   ├── assets/help.png       /help 指令截图
-│   └── decisions/DEC-*.md    18 条项目级决策正文
+│   └── decisions/DEC-*.md    19 条项目级决策正文
 ├── examples/sample-run/      一次完整运行的真实产出
 └── scripts/                  包装脚本（自动探测解释器，无绝对路径）
     ├── _env.ps1              公共探测：Python / 仓库根 / 上传工具
@@ -481,9 +481,9 @@ INIT ──▶ CODING ──▶ REVIEWING ──┬─▶ APPROVED        （审
 | --- | --- | --- |
 | `task` | 编排器 → 编码 | `task_spec`、`requirements`、`target_file` |
 | `code` | 编码/修复 → 编排器 | `code`、`notes`、`addressed` |
-| `review_request` | 编排器 → 审查 | `code`、`requirements`、**`verification`（机器验收证据）** |
+| `review_request` | 编排器 → 审查 | `code`、`requirements`、`test_contract`（验收契约）、**`verification`（机器验收证据）** |
 | `review` | 审查 → 编排器 | `approved`、`score`、`issues[]`、`summary` |
-| `fix_request` | 编排器 → 修复 | `code`、`issues[]` |
+| `fix_request` | 编排器 → 修复 | `code`、`issues[]`、`test_contract`、`verification`（原始 pytest 报错） |
 | `status` / `done` / `failed` | 编排器 → 全部 | `phase`、`round` |
 
 所有消息按序写入 `runs/<run_id>/messages.jsonl`，报告里渲染成「通信流水」表
@@ -505,13 +505,26 @@ state.code
 三层保险：Prompt 层给证据、`normalize_review` 层改模型结论、编排器层守终态
 （[DEC-006](docs/decisions/DEC-006-machine-verdict.md)）。冲突时**以机器为准**。
 
+**验收契约（`Task.contract_text`）**：光给「验收项」不够——测试里怎么写调用，
+代码就得长什么样。所以编码 / 修复 / 审查 Agent 的 Prompt 里都带上真正会跑的
+pytest 源码，外加从测试里自动抽出的接口清单：
+
+```
+- 构造签名必须接受这些关键字参数：TTLCache(capacity=..., ttl_seconds=..., clock=...)
+- 实例上会出现这些方法调用：put, get, items, stats, clear, purge_expired
+- 测试会直接读这些内部属性（名字不能改）：_expiry
+```
+
+修复 Agent 还会拿到上一轮 pytest 报错的**开头与结尾**（第一个失败用例的完整 traceback +
+失败清单）：只给它「构造函数 TypeError」这种转述，它只能照着措辞猜，改不动真正的签名。
+
 ### 5.6 三个 Agent
 
 | Agent | 文件 | 职责 | 输入 | 输出 | 温度 |
 | --- | --- | --- | --- | --- | --- |
-| 编码 Agent | `agents/coder.py` | 按任务说明写第一版完整实现 | `task` 消息 | 一个 python 代码块 + 说明 | 0.1 |
-| 审查 Agent | `agents/reviewer.py` | 逐条对照 REQ 审查，输出结构化结论 | `review_request`（含验收证据） | 严格 JSON | 0.0 |
-| 修复 Agent | `agents/fixer.py` | 只改被指出的问题，保持结构 | `fix_request`（代码 + 问题清单） | 完整代码块 + 「已修复」清单 | 0.1 |
+| 编码 Agent | `agents/coder.py` | 按任务说明写第一版完整实现 | `task` 消息（需求 + 验收项 + 验收契约） | 一个 python 代码块 + 说明 | 0.1 |
+| 审查 Agent | `agents/reviewer.py` | 逐条对照 REQ 审查，输出结构化结论 | `review_request`（代码 + 契约 + 验收证据） | 严格 JSON | 0.0 |
+| 修复 Agent | `agents/fixer.py` | 只改被指出的问题，保持结构 | `fix_request`（代码 + 问题清单 + 契约 + pytest 报错） | 完整代码块 + 「已修复」清单 | 0.1 |
 
 共同点：**无状态、无文件系统访问、只读写收件箱**。换模型只改 `config/agents.json`：
 
@@ -536,9 +549,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun
 ### 5.8 聊天入口、事件流与并行审查
 
 **聊天输入 = 一次性任务**。面板把输入写进 `runs/_prompts/<id>/task.md` 后调用
-`run --prompt-file … --events`；没有固定类名，静态检查退化为「通用检查」（语法、非空、无占位）。
-若生成的代码恰好实现了已知任务（如 `TTLCache`），`infer_tests()` 会自动挂上
-`tasks/ttl_cache` 的 25 个用例 —— 自由输入也能有真测试，面板会标出「复用的测试套件」。
+`run --prompt-file … --events`。
+如果这句话里已经点名了某个已知任务的类名（典型场景：「写一个带过期时间的 LRU 缓存 …
+class TTLCache」），`Task.from_prompt` 会**在编码之前**就沿用 `tasks/ttl_cache` 的
+模块名、验收项与 25 个用例——接口契约随首轮 Prompt 一起给到 Agent，
+面板与报告会标出「复用的测试套件」。完全无关的需求（如「写两个小函数」）没有固定类名，
+静态检查退化为「通用检查」（语法、非空、无占位），也没有契约可给。
 
 **事件流**（`--events`）让 UI 与编排解耦：
 
@@ -631,7 +647,9 @@ stateDiagram-v2
 
 - 实现：[`solutions/ttl_cache.py`](solutions/ttl_cache.py)（约 300 行，含设计注释）
 - 测试：[`tests/test_ttl_cache.py`](tests/test_ttl_cache.py)（25 个用例，0.17s 跑完）
-- 结果：`python -m pytest -q` → **59 passed**（其中缓存 25 个）
+- 结果：`python -m pytest -q` → **64 passed**（其中缓存 25 个）
+- 由工作流自己跑一遍：面板输入「写一个带过期时间的 LRU 缓存，线程安全」→
+  第 1 轮验收失败 → 修复 → 第 2 轮 `25 passed` → APPROVED（报告见 `runs/<run_id>/REPORT.md`）
 
 ### 6.2 六条要求怎么满足
 
@@ -668,7 +686,7 @@ stateDiagram-v2
 
 ## 七、决策记录（DEC）
 
-每次决策都留编号。分两层：**项目级 18 条**（正文在 `docs/decisions/`）+ **运行级**
+每次决策都留编号。分两层：**项目级 19 条**（正文在 `docs/decisions/`）+ **运行级**
 （每次运行自动编号，写入 `runs/<id>/decisions.jsonl`，汇总进 `REPORT.md`）。
 
 | 编号 | 主题 | 决定 |
@@ -691,6 +709,7 @@ stateDiagram-v2
 | [DEC-016](docs/decisions/DEC-016-chat-entry.md) | 聊天入口 | `--prompt` 一次性任务 + `--events` 事件流 + 并行审查 |
 | [DEC-017](docs/decisions/DEC-017-agent-registry.md) | 可扩展性 | Agent 注册表 + 配置驱动流水线，新增 Agent 不改编排器 |
 | [DEC-018](docs/decisions/DEC-018-bind-doctor.md) | 绑定与自检 | 面板禁用离线；`/bind` `/unbind` 对称；`/test` 七项链路自检 |
+| [DEC-019](docs/decisions/DEC-019-acceptance-contract.md) | 验收契约 | 测试源码 + 接口清单随 Prompt 下发；聊天任务编码前挂载已知套件 |
 
 每条 DEC 都写了 **背景 / 可选项 / 决定 / 理由 / 代价与后果 / 复核条件**。
 
@@ -699,7 +718,8 @@ stateDiagram-v2
 ## 八、已知限制
 
 1. **mock 不是模型能力证明**：它只证明编排正确，真实效果请 `--live`。
-2. **测试决定上限**：机器验收只覆盖已写的 25 个缓存用例、5 个循环体用例、7 个面板用例与 3 个聊天模式用例；
+2. **测试决定上限**：机器验收只覆盖已写的 25 个缓存用例、5 个循环体用例、21 个面板用例、
+   3 个聊天模式用例、3 个并行审查用例、3 个扩展用例与 4 个验收契约用例；
    没覆盖的行为，LLM 审查也未必发现。
 3. **单机单写者**：同一 `run_id` 不能被两个进程同时续跑（无文件锁）。
 4. **循环是顺序单步的**：一次迭代只跑一个审查 Agent，没有并行审查分支（[DEC-014](docs/decisions/DEC-014-review-loop.md)）。

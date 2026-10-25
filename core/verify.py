@@ -135,10 +135,13 @@ def static_check(code: str, class_name: str = "TTLCache") -> Dict[str, Any]:
     add("get/put 无整表扫描", not scan_hits,
         "；".join(sorted(set(scan_hits))) if scan_hits else "未见 sorted/min/max 或循环", hard=False)
 
-    # OrderedDict / 双链表迹象
-    add("使用有序结构", ("OrderedDict" in code) or ("_data.move_to_end" in code),
-        "OrderedDict 或 move_to_end" if ("OrderedDict" in code or "move_to_end" in code)
-        else "未检测到 LRU 顺序结构", hard=False)
+    # OrderedDict / 双链表迹象（手写双向链表同样是 O(1) 的合法方案）
+    uses_ordered = "OrderedDict" in code or "move_to_end" in code
+    uses_linked_list = ("prev" in code and "next" in code) or ("_head" in code and "_tail" in code)
+    add("使用有序结构", uses_ordered or uses_linked_list,
+        "OrderedDict / move_to_end" if uses_ordered
+        else ("双向链表（prev/next）" if uses_linked_list else "未检测到 LRU 顺序结构"),
+        hard=False)
 
     # 过期条目清理
     add("含过期清理逻辑", ("expire" in code or "ttl" in code.lower()) and ("purge" in code or "del " in code),
@@ -155,7 +158,10 @@ def static_check(code: str, class_name: str = "TTLCache") -> Dict[str, Any]:
 def run_tests(workspace: Path, timeout: int = 180) -> Dict[str, Any]:
     """在 workspace 里跑 pytest，返回结构化结果。"""
     started = time.time()
-    cmd = _pytest_command(["-q", "--no-header", "-p", "no:cacheprovider", "tests"])
+    # ``-o addopts=``：屏蔽仓库根 pytest.ini 里的 ``-q``，否则会叠成 -qq，
+    # 连 "25 passed" 这行汇总都被吞掉，报告里就只剩一串点。
+    cmd = _pytest_command(["-q", "--no-header", "-p", "no:cacheprovider",
+                           "-o", "addopts=", "tests"])
     try:
         proc = subprocess.run(
             cmd, cwd=str(workspace), capture_output=True, text=True,
@@ -174,8 +180,20 @@ def run_tests(workspace: Path, timeout: int = 180) -> Dict[str, Any]:
         "returncode": proc.returncode,
         "duration": round(time.time() - started, 2),
         "summary": _pytest_summary(output),
-        "output": output.strip()[-6000:],
+        "output": _trim_output(output),
     }
+
+
+def _trim_output(output: str, head: int = 3000, tail: int = 6000) -> str:
+    """保留报错的头尾：pytest 会把每行尾部截断成 "…"，只留尾部会丢掉真正的异常消息。
+
+    头 3000 字符装着第一个失败用例的完整 traceback，尾 6000 字符装着最后的汇总，
+    中间大段的重复 traceback 对模型没有增量信息。
+    """
+    text = output.strip()
+    if len(text) <= head + tail:
+        return text
+    return text[:head] + "\n\n…（中间重复的报错已省略）…\n\n" + text[-tail:]
 
 
 def _pytest_summary(output: str) -> str:

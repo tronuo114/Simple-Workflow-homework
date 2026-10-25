@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from agents.base import BaseAgent, normalize_review
+from agents.base import BaseAgent, normalize_review, verification_brief
 from core.bus import Message
 
 SYSTEM = """你是一名以严格著称的代码审查员。你的唯一目标是找出会让验收失败的问题。
@@ -67,7 +67,8 @@ class ReviewerAgent(BaseAgent):
 
         user = self.build_user_prompt({
             "验收项": requirements,
-            "自动验收结果": self._format_verification(verification),
+            "验收测试（机器跑的就是它）": msg.payload.get("test_contract", ""),
+            "自动验收结果": verification_brief(verification),
             "待审代码": f"```python\n{code}\n```",
             "上一轮问题（如已修复请确认）": self._format_prev(msg.payload.get("previous_issues") or []),
         })
@@ -99,20 +100,7 @@ class ReviewerAgent(BaseAgent):
 
     @staticmethod
     def _format_verification(v: Dict[str, Any]) -> str:
-        if not v:
-            return "（无自动验收结果）"
-        lines = [f"- 总体：{'通过' if v.get('passed') else '未通过'}", f"- 摘要：{v.get('summary', '')}"]
-        static = v.get("static") or {}
-        for c in static.get("checks", []):
-            mark = "✅" if c["ok"] else ("❌" if c.get("hard") else "⚠️")
-            lines.append(f"- {mark} {c['name']}：{c['detail']}")
-        dyn = v.get("dynamic") or {}
-        if dyn.get("ran"):
-            lines.append(f"- pytest：{dyn.get('summary')}")
-            if not dyn.get("passed") and dyn.get("output"):
-                tail = "\n".join(dyn["output"].splitlines()[-25:])
-                lines.append("```\n" + tail + "\n```")
-        return "\n".join(lines)
+        return verification_brief(v)
 
     @staticmethod
     def _format_prev(issues) -> str:

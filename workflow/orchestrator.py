@@ -218,6 +218,7 @@ class Orchestrator:
             {
                 "task_spec": self.task.spec_text,
                 "requirements": self.task.requirements_text,
+                "test_contract": self.task.contract_text,
                 "target_file": self.task.target_file,
                 "class_name": self.task.class_name,
                 "carry_over": "",
@@ -331,6 +332,11 @@ class Orchestrator:
                 "code": state.code,
                 "issues": state.issues_open,
                 "requirements": self.task.requirements_text,
+                # 修复 Agent 必须看到「验收怎么跑、上次跑到哪一步炸的」：
+                # 只给它 LLM 转述过的问题，它会照着措辞猜，改不动真正的签名/断言。
+                "test_contract": self.task.contract_text,
+                "verification": state.verification,
+                "class_name": self.task.class_name,
                 "target_file": self.task.target_file,
             },
             round=state.round,
@@ -386,6 +392,7 @@ class Orchestrator:
         payload = {
             "code": state.code,
             "requirements": self.task.requirements_text,
+            "test_contract": self.task.contract_text,
             "verification": state.verification,
             "previous_issues": state.issues_open,
             "round": state.round,
@@ -418,6 +425,7 @@ class Orchestrator:
             "issues": reply.payload.get("issues") or [],
             "summary": reply.payload.get("summary", ""),
             "agents": [agent_name],
+            "round": reply.round,
         }
 
     @staticmethod
@@ -438,6 +446,7 @@ class Orchestrator:
             "issues": issues,
             "summary": " | ".join(r["summary"] for r in reviews if r.get("summary")),
             "agents": agent_names,
+            "round": max((r.get("round") or 0) for r in reviews),
         }
 
     # ------------------------------------------------------------------ #
@@ -462,7 +471,8 @@ class Orchestrator:
     def _verify(self, code: str) -> Dict[str, Any]:
         """机器验收。自由输入任务没有测试时，尝试复用已知任务的测试套件。"""
         test_files = self.task.test_files
-        tests_from = self.task.task_id
+        # 聊天任务沿用已知套件时，报告里要写清「复用的是哪个任务的测试」
+        tests_from = self.task.meta.get("adopted_from") or self.task.task_id
         module_name = self.task.module_name
         class_name = self.task.class_name
         if not test_files:
@@ -475,6 +485,9 @@ class Orchestrator:
                     # 复用它的模块名/类名：测试里写的是 `from ttl_cache import TTLCache`
                     module_name = known.module_name
                     class_name = known.class_name
+                    # 关键：把套件写回任务。否则第一轮挂了之后，修复 Agent 拿不到契约，
+                    # 只能对着「构造函数 TypeError」猜（2026-10-25 那次熔断就是这么来的）。
+                    self._adopt_suite(known)
                 except Exception:  # noqa: BLE001
                     test_files = {}
 
@@ -487,6 +500,37 @@ class Orchestrator:
         )
         result["tests_from"] = tests_from if test_files else None
         return result
+
+    def _adopt_suite(self, known: Task) -> None:
+        """首版代码命中已知任务：把它的套件与验收项挂到当前任务上（只挂一次）。
+
+        这一步必须在**第一次修复之前**完成：修复 Prompt 里的「验收契约」来自
+        ``task.contract_text``，任务没有 tests 时它就是空的。
+        """
+        if self.task.test_files:
+            return
+        self.task.meta.update({
+            "module_name": known.module_name,
+            "class_name": known.class_name,
+            "tests": list(known.meta.get("tests", [])),
+            "adopted_from": known.task_id,
+        })
+        try:
+            (self.task.root / "requirements.md").write_text(
+                known.requirements_text, encoding="utf-8")
+        except OSError:
+            pass
+        self._log(f"首版代码命中已知任务 {known.task_id}，挂载其验收套件与验收项")
+        self.dec.record(
+            title=f"复用已知任务 {known.task_id} 的验收套件",
+            context=("聊天需求没有固定类名，但首版代码定义了 "
+                     f"{known.class_name}，命中 tasks/{known.task_id}。"),
+            options=["只跑通用静态检查", "复用现成测试套件 + 验收契约"],
+            decision=f"挂载 tasks/{known.task_id} 的验收项与测试，并把契约交给修复 Agent",
+            rationale="有真测试才算验收；同时避免修复轮拿不到契约只能猜接口。",
+            consequences="后续轮次的审查/修复都按该任务的 REQ 与测试判定。",
+            phase=Phase.REVIEWING, tags=["contract"],
+        )
 
 
     def _emit(self, kind: str, **payload: Any) -> None:

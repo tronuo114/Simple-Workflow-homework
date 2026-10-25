@@ -1,4 +1,4 @@
-﻿"""修复 Agent：只改被指出的问题，不重写一切。
+"""修复 Agent：只改被指出的问题，不重写一切。
 
 「重写」是修复环节最大的风险：会把已通过的部分改坏，还会让审查意见和代码对不上。
 所以 Prompt 里明确要求保持结构、只做定点修改，并在回复里逐条说明改了什么。
@@ -8,17 +8,20 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from agents.base import BaseAgent, issues_brief
+from agents.base import BaseAgent, issues_brief, verification_brief
 from core.bus import Message
 
-SYSTEM = """你是一名外科手术式的代码修复工程师。你拿到的是「一份代码 + 一份审查问题清单」。
+SYSTEM = """你是一名外科手术式的代码修复工程师。你拿到的是「一份代码 + 一份审查问题清单 + 机器验收结果」。
 
 修复纪律：
 1. **只改问题清单里指出的地方**，其余逻辑、命名、注释保持原样。
 2. 每改一处，都要保证不破坏其他验收项。
 3. 修完自检：线程安全是否仍成立、get/put 是否仍是均摊 O(1)、TTL 语义是否正确。
 4. 输出完整的 ```python 代码块（整份文件），不要只给 diff、不要省略号。
-5. 代码块之后用「已修复：」逐条列出对应的问题编号和改法。"""
+5. 代码块之后用「已修复：」逐条列出对应的问题编号和改法。
+6. **pytest 报错是最高优先级证据**：先照着 traceback / 断言差异改到测试能跑，
+   再处理审查员提出的其他问题。接口细节（参数名、关键字参数、方法名、内部属性名）
+   以「验收测试」里的实际调用为准，不要凭题面猜。"""
 
 
 class FixerAgent(BaseAgent):
@@ -31,13 +34,16 @@ class FixerAgent(BaseAgent):
         code = msg.payload.get("code", "")
         issues = msg.payload.get("issues") or []
         requirements = msg.payload.get("requirements", "")
+        verification = msg.payload.get("verification") or {}
         round_no = msg.round
 
         self.log(f"收到 {len(issues)} 条问题，开始修复（第 {round_no} 轮）")
 
         user = self.build_user_prompt({
             "必须满足的验收项": requirements,
+            "自动验收结果（含 pytest 报错）": verification_brief(verification),
             "审查问题清单": issues_brief(issues),
+            "验收测试（必须全部跑绿，接口以它为准）": msg.payload.get("test_contract", ""),
             "当前代码": f"```python\n{code}\n```",
         })
 

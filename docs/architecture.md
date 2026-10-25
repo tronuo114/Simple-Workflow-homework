@@ -47,11 +47,11 @@
 
 | kind | 发送方 → 接收方 | 关键字段 |
 | --- | --- | --- |
-| `task` | 编排器 → 编码 | `task_spec`、`requirements`、`target_file` |
+| `task` | 编排器 → 编码 | `task_spec`、`requirements`、`test_contract`、`target_file` |
 | `code` | 编码/修复 → 编排器 | `code`、`notes`、`addressed`、`author` |
-| `review_request` | 编排器 → 审查 | `code`、`requirements`、`verification`、`previous_issues` |
+| `review_request` | 编排器 → 审查 | `code`、`requirements`、`test_contract`、`verification`、`previous_issues` |
 | `review` | 审查 → 编排器 | `approved`、`score`、`issues[]`、`summary` |
-| `fix_request` | 编排器 → 修复 | `code`、`issues[]`、`requirements` |
+| `fix_request` | 编排器 → 修复 | `code`、`issues[]`、`requirements`、`test_contract`、`verification` |
 | `status` / `done` / `failed` | 编排器 → 全部 | `phase`、`round` |
 
 `issues[]` 的每一项：`{id, severity, requirement, location, problem, suggestion}`。

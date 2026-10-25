@@ -32,6 +32,9 @@ launcher/build_info.py
 *.pkg
 *.manifest
 
+# ---- 交接文档（只在本地，不进仓库）----
+HANDOVER.md
+
 # ---- 虚拟环境 ----
 .venv/
 venv/

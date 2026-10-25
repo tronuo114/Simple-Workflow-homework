@@ -81,6 +81,35 @@ def issues_brief(issues: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def verification_brief(v: Dict[str, Any], head_lines: int = 18, tail_lines: int = 16) -> str:
+    """把机器验收结果压成给 Agent 看的文本，含 pytest 报错的**开头与结尾**。
+
+    审查 Agent 与修复 Agent 共用：修复最需要的是**原始 traceback**，
+    而不是别人转述过的「构造函数 TypeError」。pytest 输出开头是第一个失败用例的
+    完整异常（真正的报错消息在这里），结尾是失败清单，中间的重复 traceback 没有增量信息。
+    """
+    if not v:
+        return "（无自动验收结果）"
+    lines = [f"- 总体：{'通过' if v.get('passed') else '未通过'}",
+             f"- 摘要：{v.get('summary', '')}"]
+    static = v.get("static") or {}
+    for c in static.get("checks", []):
+        mark = "✅" if c["ok"] else ("❌" if c.get("hard") else "⚠️")
+        lines.append(f"- {mark} {c['name']}：{c['detail']}")
+    dyn = v.get("dynamic") or {}
+    if dyn.get("ran"):
+        lines.append(f"- pytest：{dyn.get('summary')}")
+        if not dyn.get("passed") and dyn.get("output"):
+            all_lines = dyn["output"].splitlines()
+            if len(all_lines) > head_lines + tail_lines:
+                shown = (all_lines[:head_lines] + ["…（中间重复的报错已省略）…"]
+                         + all_lines[-tail_lines:])
+            else:
+                shown = all_lines
+            lines.append("```\n" + "\n".join(shown) + "\n```")
+    return "\n".join(lines)
+
+
 def normalize_review(raw: Dict[str, Any]) -> Dict[str, Any]:
     """把模型返回的审查结论文档化，缺字段也不炸。"""
     issues: List[Dict[str, Any]] = []

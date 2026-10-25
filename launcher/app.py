@@ -69,9 +69,9 @@ def main(argv: list[str] | None = None) -> int:
         return _selftest()
 
     if args and args[0] in ("--version", "-V"):
-        from launcher.panel import BUILD_TIME
+        from launcher.panel import BUILD_TIME, COMMANDS_TEXT
         print(f"WorkflowPanel 构建：{BUILD_TIME}")
-        print(f"支持指令：/help /key /mode /model /base /rounds /parallel /status /version /report /clear /stop /run")
+        print(f"支持指令：{COMMANDS_TEXT}")
         return 0
 
     if args and args[0] == "--cli":

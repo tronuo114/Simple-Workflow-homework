@@ -57,6 +57,13 @@ HELP_TEXT = """可用指令（在输入框输入后按 Enter）：
 # 这些词不带斜杠也当指令处理（避免「输入 help 结果去跑工作流」）
 BARE_COMMANDS = {"help", "status", "report", "clear", "stop", "version"}
 
+# `--version` 打印的指令清单：从 HELP_TEXT 里抽，避免再写一份会过期的硬编码
+COMMANDS_TEXT = " ".join(dict.fromkeys(
+    line.split()[0]
+    for line in HELP_TEXT.splitlines()
+    if line.strip().startswith("/")
+))
+
 try:  # 打包时由 scripts/build_exe.ps1 写入
     from launcher.build_info import BUILD_TIME  # type: ignore
 except Exception:  # noqa: BLE001 - 源码运行时没有构建信息

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List
 
 from core.bus import MessageBus
@@ -46,6 +47,8 @@ def build_report(
         dyn = v.get("dynamic") or {}
         if dyn.get("ran"):
             lines.append(f"- pytest：{dyn.get('summary')}（{dyn.get('duration')}s）")
+        if v.get("tests_from"):
+            lines.append(f"- 测试套件：`tasks/{v['tests_from']}`（复用现成用例）")
     else:
         lines.append("- （未执行验收）")
 
@@ -135,10 +138,17 @@ def build_report(
 
     lines += ["", "## 七、最终代码", "", "```python", state.code.rstrip(), "```", ""]
 
+    task_file = f"tasks/{task.task_id}/task.md"
+    try:
+        if getattr(task, "root", None) is not None:
+            task_file = str(Path(task.root) / "task.md")
+    except Exception:  # noqa: BLE001 - 报告尾部不该因为路径问题炸掉
+        pass
+
     lines += [
         "---",
         f"报告生成时间：{datetime.now().isoformat(timespec='seconds')}",
-        f"任务：`{task.task_id}` · 需求文件：`tasks/{task.task_id}/task.md`",
+        f"任务：`{task.task_id}` · 需求文件：`{task_file}`",
     ]
     return "\n".join(lines) + "\n"
 

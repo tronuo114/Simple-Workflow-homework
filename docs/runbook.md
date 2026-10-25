@@ -91,16 +91,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -DryRun
 INIT
  └─ 记录 DEC-001~003（拓扑 / provider / 轮次上限）
 CODING
- └─ publish task → coder → 收到 code → artifacts/v1-coder.py
+ └─ publish task（题面 + 验收项 + 验收契约）→ coder → 收到 code → artifacts/v1-coder.py
 REVIEWING ◀───────────────────────────────┐  ← 循环体从这里开始
  ├─ verify：AST 静态检查 + 干净工作区跑 pytest │
- ├─ publish review_request（带验收证据）→ reviewer → JSON 结论 │
+ ├─ publish review_request（代码 + 契约 + 验收证据）→ reviewer → JSON 结论 │
  └─ 三条分支：                            │
     ├─ approved 且机器通过 → APPROVED（记 DEC）→ 退出循环 │
     ├─ approved 但机器红   → 强制驳回（记 DEC）→ FIXING   │
     └─ 不通过              → 有预算进 FIXING / 预算耗尽 REJECTED（记 DEC）→ 退出循环
 FIXING
- └─ publish fix_request（代码 + 问题清单）→ fixer → artifacts/vN-fixer.py ──┘
+ └─ publish fix_request（代码 + 问题清单 + 契约 + pytest 报错）→ fixer → artifacts/vN-fixer.py ──┘
 ```
 
 预算：`max_rounds=3`（`--rounds` 可覆盖）。最坏调用次数：1 次编码 + 3 次审查 + 2 次修复。
@@ -264,7 +264,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
 # 依赖已装好可加 -SkipDeps
 ```
 
-产物：`WorkflowPanel.exe`（约 18 MB）。exe 随仓库提交（评审可直接双击），`build/` 中间目录不入库。
+产物：`WorkflowPanel.exe`（约 24 MB）。exe 随仓库提交（评审可直接双击），`build/` 中间目录不入库。
 
 ### 11.3 同一条命令行的三种模式
 

@@ -87,17 +87,17 @@ sequenceDiagram
     participant V as 机器验收
     participant R as 审查 Agent
     participant F as 修复 Agent
-    O->>C: task（题面 + 验收项）
+    O->>C: task（题面 + 验收项 + 验收测试契约）
     C-->>O: code v1
     loop 直到审核通过
         O->>V: verify(code)
         V-->>O: 静态检查 + pytest 证据
-        O->>R: review_request（带证据）
+        O->>R: review_request（带代码、契约、证据）
         R-->>O: review（approved / score / issues）
         alt 通过
             O->>O: APPROVED（退出循环）
         else 不通过且还有预算
-            O->>F: fix_request（代码 + 问题清单）
+            O->>F: fix_request（代码 + 问题清单 + 契约 + 原始 pytest 报错）
             F-->>O: code vN
         else 预算耗尽
             O->>O: REJECTED（交遗留问题）
@@ -185,11 +185,11 @@ while state.phase == Phase.REVIEWING:
 
 | kind | 发送方 → 接收方 | 关键字段 |
 | --- | --- | --- |
-| `task` | 编排器 → 编码 | `task_spec`、`requirements`、`target_file` |
+| `task` | 编排器 → 编码 | `task_spec`、`requirements`、`test_contract`、`target_file` |
 | `code` | 编码/修复 → 编排器 | `code`、`notes`、`addressed`、`author` |
-| `review_request` | 编排器 → 审查 | `code`、`requirements`、`verification`、`previous_issues` |
+| `review_request` | 编排器 → 审查 | `code`、`requirements`、`test_contract`、`verification`、`previous_issues` |
 | `review` | 审查 → 编排器 | `approved`、`score`、`issues[]`、`summary` |
-| `fix_request` | 编排器 → 修复 | `code`、`issues[]`、`requirements` |
+| `fix_request` | 编排器 → 修复 | `code`、`issues[]`、`requirements`、`test_contract`、`verification` |
 | `status` / `done` / `failed` | 编排器 → 全部 | `phase`、`round` |
 
 `issues[]` 每项：`{id, severity, requirement, location, problem, suggestion}`。
@@ -230,6 +230,29 @@ INIT ──▶ CODING ──▶ REVIEWING ──┬─▶ APPROVED
 
 结果作为「证据」放进审查 Prompt，同时参与编排器的终态判定。
 这样避免两种失效：LLM 误放行（测试红也说过）、LLM 误杀（风格问题判不通过）。
+
+### 3.6.1 验收契约：把「测试怎么写」也交给 Agent
+
+机器验收跑的是 `tests/` 里的真实用例，而接口细节（`TTLCache(..., clock=clock)`、
+`get(key, default)`、`purge_expired()` / `stats()` / `items()` / `clear()`、内部的 `_expiry`）
+只写在测试里。第一版实现据题面猜签名，就会出现「静态检查全绿、pytest 全 ERROR」的死循环：
+修复 Agent 只拿到「构造函数 TypeError」这种转述，改不动真正的关键字参数。
+
+所以 `Task.contract_text` 把**验收测试本身**做成契约，随 `task` / `review_request` /
+`fix_request` 一起下发，并附一段 AST 自动抽取的接口清单：
+
+```
+- 构造签名必须接受这些关键字参数：TTLCache(capacity=..., ttl_seconds=..., clock=...)
+- 实例上会出现这些方法调用：put, get, items, stats, clear, purge_expired
+- 测试会直接读这些内部属性（名字不能改）：_expiry
+```
+
+聊天入口更进一步：需求里点名了已知任务的类名（「… class TTLCache」）时，
+`Task.from_prompt` 在**编码之前**就沿用该任务的模块名、REQ 与测试套件，
+首轮 Prompt 就带着契约，而不是等第一版跑挂了才 `infer_tests`。
+
+修复 Agent 另外拿到上一轮 pytest 输出的**头尾**（第一个失败用例的完整 traceback +
+失败清单）：pytest 会把每行尾部截断成 `…`，只给尾部等于把异常消息丢掉。
 
 ### 3.7 错误处理与恢复
 
@@ -362,9 +385,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1  # �
 | --- | --- | --- |
 | `tests/test_ttl_cache.py` | 25 | 缓存实现的 6 条验收项（假时钟，不 flaky） |
 | `tests/test_workflow_loop.py` | 5 | 循环重复到通过、预算耗尽熔断、机器优先于 LLM、从 CODING / FIXING 续跑 |
-| `tests/test_launcher_panel.py` | 7 | 聊天面板：命令拼装、发送流程、事件渲染、忙碌态切换 |
-| `tests/test_prompt_mode.py` | 3 | 一次性任务落盘、`infer_tests` 复用已知测试、事件流顺序 |\n| `tests/test_parallel_review.py` | 3 | 并行审查：一票驳回即驳回、全通过才通过、顺序模式只调一个审查员 |
+| `tests/test_launcher_panel.py` | 21 | 聊天面板：命令拼装、发送流程、事件渲染、斜杠指令、脱敏、忙碌态 |
+| `tests/test_prompt_mode.py` | 3 | 一次性任务落盘、`infer_tests` 复用已知测试、事件流顺序 |
+| `tests/test_parallel_review.py` | 3 | 并行审查：一票驳回即驳回、全通过才通过、顺序模式只调一个审查员 |
 | `tests/test_extensibility.py` | 3 | 注册表暴露内置 Agent、自定义 Agent 加入循环、配置换主审查 |
+| `tests/test_contract_prompt.py` | 4 | 验收契约：聊天任务编码前挂载已知套件、编码/修复/审查都收到契约、fixer 收到原始 pytest 报错 |
 
 循环体的五个用例都用**脚本化假模型**（`Orchestrator(llm=...)` 注入），不触网、不花钱，
 可以精确控制「第几轮通过」，因此断言是确定性的：
@@ -391,6 +416,7 @@ test_resume_from_fixing_finishes_fix_then_loops   停在修复阶段：续跑先
 | DEC-015 | 桌面入口 | 单文件 exe + 三子命令，根目录统一解析 |
 | DEC-016 | 聊天入口 | `--prompt` 一次性任务 + `--events` 事件流 + 并行审查 |
 | DEC-017 | 可扩展性 | Agent 注册表 + 配置驱动流水线 |
+| DEC-019 | 验收契约 | 测试源码 + 接口清单随 Prompt 下发；聊天任务编码前挂载已知套件 |
 
 完整列表见 `DECISIONS.md`。
 
